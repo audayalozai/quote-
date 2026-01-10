@@ -2,7 +2,7 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "RAILPACK",
-    "buildCommand": "pip install python==3.12 && pip install -r requirements.txt"
+    "buildCommand": "pip install 'python-telegram-bot>=21.2,<22.0' && pip install -r requirements.txt"
   },
   "deploy": {
     "runtime": "UNSPECIFIED",

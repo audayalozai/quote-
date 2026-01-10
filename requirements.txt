@@ -1,1 +1,4 @@
 python-telegram-bot>=21.2
+pyrogram==2.0.106
+TgCrypto==1.2.5
+sqlalchemy==2.0.36

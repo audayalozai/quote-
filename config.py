@@ -3,7 +3,7 @@
 # ==========================================
 
 # توكن البوت (احصل عليه من @BotFather)
-TOKEN_1 = "6741306329:AAG-or3-0oGmr3QJWN-kCC7tYxP7FTLlYgo"
+TOKEN_1 = "2069413735:AAFKEDXZAM6dD1Levea8R9PPjFiKbVLCfns"
 
 # معرف المطور (Developer ID)
 DEVELOPER_ID = 778375826  # استبدل بآيديك الرقمي

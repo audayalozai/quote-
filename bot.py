@@ -783,7 +783,9 @@ async def chat_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 # إعداد التطبيق
 # =========================================
 
+# تم إضافة drop_pending_updates=True لإنهاء أي صراع (Conflict) قديم وتنظيف السجلات
 application = Application.builder().token(config.TOKEN_1).build()
+application.updater.drop_pending_updates = True
 
 def get_application():
     application.add_handler(CommandHandler("start", start))

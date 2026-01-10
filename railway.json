@@ -1,13 +1,12 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
-    "builder": "RAILPACK"
+    "builder": "NIXPACKS",
+    "buildCommand": "pip install -r requirements.txt"
   },
   "deploy": {
-    "runtime": "LEGACY",
+    "runtime": "V2",
     "numReplicas": 1,
-    "sleepApplication": false,
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10
+    "sleepApplication": false
   }
 }

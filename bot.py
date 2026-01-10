@@ -779,13 +779,9 @@ async def chat_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         asyncio.create_task(send_notification_to_admins(context.bot, f"⚠️ تم حذف البوت من <b>{chat_title}</b>"))
         db.remove_channel_db(chat_id)
 
-# =========================================
-# إعداد التطبيق
-# =========================================
 
-# تم إضافة drop_pending_updates=True لإنهاء أي صراع (Conflict) قديم وتنظيف السجلات
+
 application = Application.builder().token(config.TOKEN_1).build()
-application.updater.drop_pending_updates = True
 
 def get_application():
     application.add_handler(CommandHandler("start", start))

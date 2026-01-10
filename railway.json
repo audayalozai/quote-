@@ -1,11 +1,11 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
-    "builder": "NIXPACKS",
-    "buildCommand": "pip install -r requirements.txt"
+    "builder": "RAILPACK",
+    "buildCommand": "pip install python==3.12 && pip install -r requirements.txt"
   },
   "deploy": {
-    "runtime": "V2",
+    "runtime": "UNSPECIFIED",
     "numReplicas": 1,
     "sleepApplication": false
   }

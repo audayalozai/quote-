@@ -15,7 +15,7 @@ from telegram.ext import (
     ConversationHandler
 )
 
-# استيراد الملفات المحلية (تأكد من وجودها في نفس المسار)
+# استيراد الملفات المحلية
 import config
 import database as db
 
@@ -26,7 +26,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# تهيئة قاعدة البيانات مع معالجة الأخطاء للتوافق مع Railway
+# تهيئة قاعدة البيانات
 try:
     db.init_db()
     logger.info("✅ Database initialized successfully.")
@@ -44,7 +44,7 @@ CATEGORIES = [
 # حالات المحادثة (States)
 CHANNEL_INPUT = 1
 CHANNEL_TIME_INPUT = 2
-BROADCAST_INPUT = 3
+BROADCAST_INPUT = 3       # <--- تم تصحيح الاسم ليكون متسقاً
 ADD_ADMIN_INPUT = 4
 DEL_ADMIN_INPUT = 5
 RESTORE_CONFIRM = 6
@@ -83,17 +83,16 @@ def get_role(user_id):
 def get_back_keyboard(role):
     return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")]])
 
-# --- توليد الكيبوردات (تم تحديث الترتيب والمحتوى) ---
+# --- توليد الكيبوردات ---
 
 def get_keyboard_by_role(role):
     btns = []
     
     if role == "dev":
-        # لوحة المطور
         btns = [
             [InlineKeyboardButton("🔄 النسخ الاحتياطي", callback_data="backup_menu")],
             [InlineKeyboardButton("👥 إدارة المشرفين", callback_data="manage_admins")],
-            [InlineKeyboardButton("👤 قائمة المستخدمين", callback_data="view_users")], # زر جديد
+            [InlineKeyboardButton("👤 قائمة المستخدمين", callback_data="view_users")],
             [InlineKeyboardButton("📊 الإحصائيات", callback_data="show_stats")],
             [InlineKeyboardButton("📂 إدارة الملفات", callback_data="manage_files")],
             [InlineKeyboardButton("🔧 إدارة القنوات", callback_data="manage_channels")],
@@ -104,7 +103,6 @@ def get_keyboard_by_role(role):
         title = "لوحة المطور 🔧"
         
     elif role == "admin":
-        # لوحة المشرف
         btns = [
             [InlineKeyboardButton("➕ إضافة قناة", callback_data="start_add_channel")],
             [InlineKeyboardButton("📊 الإحصائيات", callback_data="show_stats")],
@@ -117,11 +115,10 @@ def get_keyboard_by_role(role):
         title = "لوحة المشرف 👨‍💼"
         
     else:
-        # --- القائمة الجديدة والمحسنة للمستخدم العادي ---
         btns = [
             [InlineKeyboardButton("💭 تصفح الأقسام", callback_data="user_browse_categories")],
             [InlineKeyboardButton("🔖 اقتباس عشوائي", callback_data="user_random_quote")],
-            [InlineKeyboardButton("📢 القناة الرسمية", url="https://t.me/YourChannel")], # ضع رابط قناتك هنا
+            [InlineKeyboardButton("📢 القناة الرسمية", url="https://t.me/YourChannel")],
             [InlineKeyboardButton("❓ كيف يعمل البوت؟", callback_data="user_help")]
         ]
         title = "القائمة الرئيسية 🏠"
@@ -187,7 +184,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- الرجوع للخلف ---
     if data.startswith("back_"):
         target_role = data.split("_")[1]
-        # التحقق من الصلاحيات
         if target_role == "dev" and role != "dev": target_role = role
         if target_role == "admin" and role not in ["dev", "admin"]: target_role = role
         
@@ -195,61 +191,35 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
         return
 
-    # --- منطق أزرار المستخدم العادي (جديد ومحسّن) ---
-    
-    # زر "اقتباس عشوائي" مباشرة
+    # --- منطق أزرار المستخدم العادي ---
     if data == "user_random_quote":
         random_cat = random.choice([c[1] for c in CATEGORIES])
         content = db.get_next_content(random_cat)
-        
-        if content:
-            text = f"✨ <b>اقتباس عشوائي:</b>\n\n{content}"
-        else:
-            text = "❌ لا توجد اقتباسات حالياً."
-        
+        text = f"✨ <b>اقتباس عشوائي:</b>\n\n{content}" if content else "❌ لا توجد اقتباسات حالياً."
         keyboard = [[InlineKeyboardButton("🔄 اقتباس آخر", callback_data="user_random_quote")], [InlineKeyboardButton("🔙 رجوع", callback_data="back_user")]]
         await query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
-    # زر "تصفح الأقسام" (عرض القائمة)
     if data == "user_browse_categories":
         keyboard = [[InlineKeyboardButton(name, callback_data=f"user_cat_{code}")] for name, code in CATEGORIES]
         keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_user")])
-        await query.edit_message_text("اختر القسم الذي تريد تصفحه:", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("اختر القسم:", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
-    # عند اختيار قسم معين
     if data.startswith("user_cat_"):
         category = data.split("_")[-1]
         content = db.get_next_content(category)
-        
-        if content:
-            text = f"📂 <b>قسم: {category}</b>\n\n{content}"
-        else:
-            text = "📭 هذا القسم فارغ حالياً."
-            
-        keyboard = [
-            [InlineKeyboardButton("🔄 اقتباس آخر", callback_data=f"user_cat_{category}")],
-            [InlineKeyboardButton("🔙 رجوع للأقسام", callback_data="user_browse_categories")]
-        ]
+        text = f"📂 <b>قسم: {category}</b>\n\n{content}" if content else "📭 القسم فارغ."
+        keyboard = [[InlineKeyboardButton("🔄 اقتباس آخر", callback_data=f"user_cat_{category}")], [InlineKeyboardButton("🔙 رجوع للأقسام", callback_data="user_browse_categories")]]
         await query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
-    # زر المساعدة
     if data == "user_help":
-        help_text = (
-            "🤖 <b>كيف أستخدم البوت؟</b>\n\n"
-            "1. استطيع قراءة الاقتباسات من الأقسام المختلفة.\n"
-            "2. يمكنك الضغط على 'اقتباس عشوائي' للحصول على رسالة فورية.\n"
-            "3. لاستخدامي في مجموعتك، قم برفعي مشرفاً."
-        )
-        keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data="back_user")]]
-        await query.edit_message_text(help_text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        help_text = "🤖 <b>كيف أستخدم البوت؟</b>\n\n1. تصفح الأقسام.\n2. احصل على اقتباسات عشوائية.\n3. للمجموعات، ارفعني مشرفاً."
+        await query.edit_message_text(help_text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_user")]]))
         return
 
     # --- منطق المطور والمشرف ---
-
-    # --- نظام النسخ الاحتياطي ---
     if data == "backup_menu" and role == "dev":
         keyboard = [
             [InlineKeyboardButton("⬇️ تحميل نسخة احتياطية", callback_data="do_backup")],
@@ -265,7 +235,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb, title = get_keyboard_by_role("dev")
         await query.edit_message_text(f"🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
 
-    # --- قائمة المستخدمين (جديد) ---
     if data == "view_users" and role == "dev":
         session = db.Session()
         try:
@@ -273,34 +242,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not users:
                 await query.edit_message_text("لا يوجد مستخدمين.", reply_markup=get_back_keyboard("dev"))
                 return
-
             text = "👥 <b>آخر 20 مستخدم:</b>\n\n"
             for user in users:
                 status = "👨‍💼 (مشرف)" if user.is_admin else "👤 (مستخدم)"
                 username = f"@{user.username}" if user.username else "بدون يوزر"
                 text += f"{status}\n🆔 <code>{user.user_id}</code>\n📝 {username}\n{'─'*20}\n"
-            
-            # نرسل رسالة جديدة لتجنب مشكلة طول الرسالة في edit_message_text
             await query.message.reply_text(text, parse_mode='HTML')
             kb, title = get_keyboard_by_role("dev")
             await query.edit_message_text(f"🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
-            
         except Exception as e:
             logger.error(f"Error viewing users: {e}")
             await query.edit_message_text("حدث خطأ.", reply_markup=get_back_keyboard("dev"))
         finally:
             session.close()
 
-    # --- بداية المحادثات (Conversations) ---
+    # --- بداية المحادثات ---
     if data == "start_add_channel":
         context.user_data.clear()
-        await query.edit_message_text("✏️ أرسل الآن:\n1. رابط القناة العامة (مثلاً @Channel)\n2. أو قم بتحويل رسالة (Forward) من القناة", reply_markup=get_back_keyboard(role))
+        await query.edit_message_text("✏️ أرسل الآن رابط القناة أو تحويل رسالة:", reply_markup=get_back_keyboard(role))
         return CHANNEL_INPUT
 
     if data == "start_broadcast" and role in ["dev", "admin"]:
         context.user_data.clear()
-        await query.edit_message_text("✏️ أرسل الرسالة التي تريد إذاعتها:", reply_markup=get_back_keyboard(role))
-        return BROADCAST_STATE
+        await query.edit_message_text("✏️ أرسل الرسالة للإذاعة:", reply_markup=get_back_keyboard(role))
+        return BROADCAST_INPUT  # <--- تصحيح: استخدام الاسم الصحيح
 
     if data == "manage_admins" and role == "dev":
         keyboard = [
@@ -311,17 +276,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("اختر العملية:", reply_markup=InlineKeyboardMarkup(keyboard))
     
     if data == "conv_add_admin" and role == "dev":
-        await query.edit_message_text("أرسل الآن (آيدي) أو (معرف المستخدم) للإضافة:", reply_markup=get_back_keyboard(role))
+        await query.edit_message_text("أرسل الآيدي أو المعرف:", reply_markup=get_back_keyboard(role))
         return ADD_ADMIN_INPUT
 
     if data == "conv_del_admin" and role == "dev":
-        await query.edit_message_text("أرسل الآن (آيدي) أو (معرف المستخدم) للحذف:", reply_markup=get_back_keyboard(role))
+        await query.edit_message_text("أرسل الآيدي أو المعرف:", reply_markup=get_back_keyboard(role))
         return DEL_ADMIN_INPUT
 
-    # --- خطوات إضافة قناة (Flow) ---
+    # --- خطوات إضافة قناة ---
     if data.startswith("cat_"):
         context.user_data['selected_category'] = data.split("_")[1]
-        await query.edit_message_text(f"تم اختيار القسم: <b>{context.user_data['selected_category']}</b>.\n\nاختر شكل الرسالة:", parse_mode='HTML', reply_markup=get_format_keyboard("fmt"))
+        await query.edit_message_text(f"تم اختيار القسم: <b>{context.user_data['selected_category']}</b>.\n\nاختر الشكل:", parse_mode='HTML', reply_markup=get_format_keyboard("fmt"))
     
     if data.startswith("fmt_"):
         context.user_data['selected_format'] = data.split("_")[1]
@@ -336,10 +301,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             if time_type == "fixed":
                 context.user_data['action'] = 'set_fixed_time'
-                msg = "أرسل الساعات المطلوبة (مثلاً: 10, 14, 20) مفصولة بفاصلة:"
+                msg = "أرسل الساعات (10, 14, 20):"
             elif time_type == "interval":
                 context.user_data['action'] = 'set_interval'
-                msg = "أرسل الفارق الزمني بالدقائق (مثلاً: 60):"
+                msg = "أرسل الفارق بالدقائق:"
             await query.edit_message_text(msg, reply_markup=get_back_keyboard(role))
             return CHANNEL_TIME_INPUT
 
@@ -347,45 +312,42 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "manage_files" and role in ["dev", "admin"]:
         keyboard = [[InlineKeyboardButton(name, callback_data=f"upload_{code}")] for name, code in CATEGORIES]
         keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")])
-        await query.edit_message_text("اختر القسم لرفع ملفات الاقتباسات (txt):", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("اختر القسم لرفع ملفات txt:", reply_markup=InlineKeyboardMarkup(keyboard))
     
     if data.startswith("upload_"):
         category = data.split("_")[1]
         context.user_data['upload_category'] = category
-        await query.edit_message_text(f"تم اختيار قسم: <b>{category}</b>\n\nالآن قم بإرسال ملف <code>.txt</code>.", parse_mode='HTML', reply_markup=get_back_keyboard(role))
+        await query.edit_message_text(f"قسم: <b>{category}</b>\n\nأرسل ملف .txt.", parse_mode='HTML', reply_markup=get_back_keyboard(role))
 
-    # --- إدارة القنوات (عرض وحذف) ---
+    # --- إدارة القنوات ---
     if data == "manage_channels" and role in ["dev", "admin"]:
         session = db.Session()
         try:
             channels = session.query(db.Channel).all()
             if not channels:
-                await query.edit_message_text("لا توجد قنوات مضافة.", reply_markup=get_back_keyboard(role))
+                await query.edit_message_text("لا توجد قنوات.", reply_markup=get_back_keyboard(role))
                 return
             keyboard = [[InlineKeyboardButton(f"{ch.title} ({ch.category})", callback_data=f"edit_channel_{ch.id}")] for ch in channels]
             keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")])
-            await query.edit_message_text("اختر قناة للتعديل أو الحذف:", reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.edit_message_text("اختر قناة:", reply_markup=InlineKeyboardMarkup(keyboard))
         finally: session.close()
 
     if data.startswith("edit_channel_"):
         ch_id = int(data.split("_")[2])
         context.user_data['editing_channel_id'] = ch_id
         keyboard = [
-            [InlineKeyboardButton("🔄 تغيير المحتوى", callback_data="edit_cat_select")],
-            [InlineKeyboardButton("🎨 تغيير الشكل", callback_data="edit_fmt_select")],
-            [InlineKeyboardButton("⏰ تغيير الوقت", callback_data="edit_time_select")],
-            [InlineKeyboardButton("🗑️ حذف القناة", callback_data="confirm_del_channel")],
+            [InlineKeyboardButton("🔄 المحتوى", callback_data="edit_cat_select")],
+            [InlineKeyboardButton("🎨 الشكل", callback_data="edit_fmt_select")],
+            [InlineKeyboardButton("⏰ الوقت", callback_data="edit_time_select")],
+            [InlineKeyboardButton("🗑️ حذف", callback_data="confirm_del_channel")],
             [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")]
         ]
         await query.edit_message_text("خيارات التعديل:", reply_markup=InlineKeyboardMarkup(keyboard))
 
     if data == "confirm_del_channel":
         ch_id = context.user_data.get('editing_channel_id')
-        keyboard = [
-            [InlineKeyboardButton("❌ لا", callback_data=f"edit_channel_{ch_id}")],
-            [InlineKeyboardButton("✅ نعم، احذف", callback_data=f"exec_del_channel_{ch_id}")]
-        ]
-        await query.edit_message_text("هل أنت متأكد من حذف القناة؟", reply_markup=InlineKeyboardMarkup(keyboard))
+        keyboard = [[InlineKeyboardButton("❌ لا", callback_data=f"edit_channel_{ch_id}")], [InlineKeyboardButton("✅ نعم", callback_data=f"exec_del_channel_{ch_id}")]]
+        await query.edit_message_text("هل أنت متأكد؟", reply_markup=InlineKeyboardMarkup(keyboard))
 
     if data.startswith("exec_del_channel_"):
         ch_id = int(data.split("_")[3])
@@ -404,7 +366,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         finally: session.close()
         await query.edit_message_text(msg, parse_mode='HTML', reply_markup=get_back_keyboard(role))
 
-    # --- منطق التعديل (مبسط) ---
     if data == "edit_cat_select":
         await query.edit_message_text("اختر المحتوى:", reply_markup=get_categories_keyboard(f"set_edit_cat_{context.user_data['editing_channel_id']}"))
     if data.startswith("set_edit_cat_"):
@@ -414,10 +375,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ch_id = int(parts[3])
             category = "_".join(parts[4:]) 
             ch = session.query(db.Channel).filter_by(id=ch_id).first()
-            if ch: 
-                ch.category = category
-                session.commit()
-                msg = "✅ تم تحديث المحتوى."
+            if ch: ch.category = category; session.commit(); msg = "✅ تم التحديث."
             else: msg = "❌ خطأ."
         except: msg = "❌ خطأ."
         finally: session.close()
@@ -430,10 +388,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session = db.Session()
         try:
             ch = session.query(db.Channel).filter_by(id=int(parts[3])).first()
-            if ch: 
-                ch.msg_format = parts[4]
-                session.commit()
-                msg = "✅ تم تحديث الشكل."
+            if ch: ch.msg_format = parts[4]; session.commit(); msg = "✅ تم التحديث."
         except: msg = "❌ خطأ."
         finally: session.close()
         await query.edit_message_text(msg, parse_mode='HTML', reply_markup=get_back_keyboard(role))
@@ -445,11 +400,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session = db.Session()
         try:
             ch = session.query(db.Channel).filter_by(id=int(data.split("_")[3])).first()
-            if ch: 
-                ch.time_type = time_type
-                ch.time_value = None if time_type == 'default' else ch.time_value
-                session.commit()
-                msg = "✅ تم تغيير التوقيت."
+            if ch: ch.time_type = time_type; ch.time_value = None if time_type == 'default' else ch.time_value; session.commit(); msg = "✅ تم التغيير."
         except: msg = "❌ خطأ."
         finally: session.close()
         await query.edit_message_text(msg, parse_mode='HTML', reply_markup=get_back_keyboard(role))
@@ -467,7 +418,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else: session.add(db.BotSettings(key='posting_status', value=new_status))
             session.commit()
             state_text = "🟢 مفعل" if new_status == 'on' else "🔴 متوقف"
-            await query.edit_message_text(f"تم تغيير الحالة إلى: <b>{state_text}</b>", parse_mode='HTML', reply_markup=get_back_keyboard(role))
+            await query.edit_message_text(f"الحالة: <b>{state_text}</b>", parse_mode='HTML', reply_markup=get_back_keyboard(role))
         finally: session.close()
 
     if data == "post_now":
@@ -481,6 +432,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     role = get_role(user_id)
     text = update.message.text
+    # جلب الحالة الحالية
     current_state = context.user_data.get('conv_state')
 
     # منطق إضافة القناة
@@ -496,32 +448,29 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(f"✅ تم التحقق من: <b>{title}</b>\n\nاختر القسم:", parse_mode='HTML', reply_markup=get_categories_keyboard("cat"))
             return CHANNEL_INPUT 
         else:
-            await update.message.reply_text("⛔️ <b>البوت ليس مشرفاً في القناة!</b>", parse_mode='HTML')
+            await update.message.reply_text("⛔️ <b>البوت ليس مشرفاً!</b>", parse_mode='HTML')
             return ConversationHandler.END
 
     # منطق وقت القناة
     if current_state == CHANNEL_TIME_INPUT:
         time_type = context.user_data.get('time_type')
         val_valid = False
-        
         if time_type == "fixed":
             val_valid = all(h.strip().isdigit() for h in text.split(','))
             if val_valid: context.user_data['time_settings'] = {'type': 'fixed', 'value': text}
-        
         elif time_type == "interval":
             if text.strip().isdigit():
                 val_valid = True
                 context.user_data['time_settings'] = {'type': 'interval', 'value': text}
-        
         if val_valid:
             await finalize_channel_addition_logic(update, role, context)
             return ConversationHandler.END
         else:
-            await update.message.reply_text("❌ قيمة غير صحيحة. حاول مرة أخرى.")
+            await update.message.reply_text("❌ قيمة غير صحيحة.")
             return CHANNEL_TIME_INPUT
 
-    # منطق الإذاعة
-    if current_state == BROADCAST_STATE:
+    # منطق الإذاعة (تم التصحيح)
+    if current_state == BROADCAST_INPUT: # <--- استخدام الثابت الصحيح
         await update.message.reply_text("⏳ جاري الإذاعة...")
         asyncio.create_task(broadcast_task_logic(context.bot, text))
         return ConversationHandler.END
@@ -532,12 +481,8 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         session = db.Session()
         try:
             user = session.query(db.User).filter((db.User.username == target) | (db.User.user_id == str(target))).first()
-            if user: 
-                user.is_admin = True
-                session.commit()
-                msg = f"✅ تم رفع المشرف {user.username or user.user_id}."
-            else: 
-                msg = "❌ لم أجد المستخدم في قاعدة البيانات."
+            if user: user.is_admin = True; session.commit(); msg = "✅ تم رفع المشرف."
+            else: msg = "❌ لم أجد المستخدم."
         finally: session.close()
         await update.message.reply_text(msg, parse_mode='HTML', reply_markup=get_back_keyboard(role))
         return ConversationHandler.END
@@ -548,13 +493,9 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         try:
             user = session.query(db.User).filter((db.User.username == target) | (db.User.user_id == str(target))).first()
             if user and user.user_id != config.DEVELOPER_ID:
-                user.is_admin = False
-                session.commit()
-                msg = "✅ تمت الإزالة."
-            elif user and user.user_id == config.DEVELOPER_ID:
-                msg = "❌ لا يمكنك حذف المطور!"
-            else: 
-                msg = "❌ خطأ."
+                user.is_admin = False; session.commit(); msg = "✅ تمت الإزالة."
+            elif user and user.user_id == config.DEVELOPER_ID: msg = "❌ لا يمكنك حذف المطور!"
+            else: msg = "❌ خطأ."
         finally: session.close()
         await update.message.reply_text(msg, parse_mode='HTML', reply_markup=get_back_keyboard(role))
         return ConversationHandler.END
@@ -568,7 +509,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
     category = context.user_data.get('upload_category')
-    
     if document and category:
         if document.mime_type == "text/plain":
             try:
@@ -576,43 +516,31 @@ async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 content_bytes = await file.download_as_bytearray()
                 content_list = [line for line in content_bytes.decode('utf-8').splitlines() if line.strip()]
                 count = db.add_file_content(category, content_list)
-                msg = f"✅ تمت إضافة <b>{count}</b> سطر/اقتباس."
+                msg = f"✅ تمت إضافة <b>{count}</b> سطر."
                 context.user_data['upload_category'] = None
             except Exception as e:
                 msg = f"❌ خطأ: {e}"
                 logger.error(f"Upload Error: {e}")
-        else:
-            msg = "❌ ملف .txt فقط."
+        else: msg = "❌ ملف .txt فقط."
         role = get_role(update.effective_user.id)
         await update.message.reply_text(msg, parse_mode='HTML', reply_markup=get_back_keyboard(role))
 
-# --- دوال النسخ الاحتياطي (Backup Logic) ---
+# --- دوال النسخ الاحتياطي ---
 
 async def create_backup(bot, user_id):
     session = db.Session()
     try:
-        backup_data = {
-            "users": [],
-            "channels": [],
-            "settings": [],
-            "content": []
-        }
-
+        backup_data = {"users": [], "channels": [], "settings": [], "content": []}
         for u in session.query(db.User).all():
-            backup_data["users"].append({
-                "user_id": u.user_id, "username": u.username, "is_admin": u.is_admin
-            })
-        
+            backup_data["users"].append({"user_id": u.user_id, "username": u.username, "is_admin": u.is_admin})
         for ch in session.query(db.Channel).all():
             backup_data["channels"].append({
                 "id": ch.id, "channel_id": ch.channel_id, "title": ch.title, 
                 "category": ch.category, "msg_format": ch.msg_format,
                 "time_type": ch.time_type, "time_value": ch.time_value, "is_active": ch.is_active
             })
-
         for s in session.query(db.BotSettings).all():
             backup_data["settings"].append({"key": s.key, "value": s.value})
-
         if hasattr(db, 'FileContent'):
             for c in session.query(db.FileContent).all():
                 backup_data["content"].append({"category": c.category, "text": c.text})
@@ -620,9 +548,7 @@ async def create_backup(bot, user_id):
         json_str = json.dumps(backup_data, ensure_ascii=False, indent=4)
         file_bytes = io.BytesIO(json_str.encode('utf-8'))
         file_bytes.name = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        
         await bot.send_document(chat_id=user_id, document=file_bytes, caption="✅ النسخة الاحتياطية جاهزة.")
-        
     except Exception as e:
         logger.error(f"Backup Error: {e}")
         await bot.send_message(chat_id=user_id, text=f"❌ فشل النسخ الاحتياطي: {e}")
@@ -632,113 +558,79 @@ async def create_backup(bot, user_id):
 async def handle_restore_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
     if document.mime_type == "application/json" or document.file_name.endswith('.json'):
-        await update.message.reply_text("⏳ جاري قراءة الملف واستعادة البيانات...")
+        await update.message.reply_text("⏳ جاري استعادة البيانات...")
         try:
             file = await document.get_file()
             content_bytes = await file.download_as_bytearray()
             data = json.loads(content_bytes.decode('utf-8'))
-            
             session = db.Session()
             try:
                 session.query(db.Channel).delete()
                 session.query(db.BotSettings).delete()
-                if hasattr(db, 'FileContent'):
-                    session.query(db.FileContent).delete()
-                
+                if hasattr(db, 'FileContent'): session.query(db.FileContent).delete()
                 dev_id = config.DEVELOPER_ID
                 session.query(db.User).filter(db.User.user_id != dev_id).delete()
-                
                 for u_data in data.get("users", []):
-                    if u_data['user_id'] == dev_id: continue 
+                    if u_data['user_id'] == dev_id: continue
                     user = session.query(db.User).filter_by(user_id=u_data['user_id']).first()
-                    if not user:
-                        user = db.User(user_id=u_data['user_id'])
-                    user.username = u_data['username']
-                    user.is_admin = u_data['is_admin']
-                    session.add(user)
-                
+                    if not user: user = db.User(user_id=u_data['user_id'])
+                    user.username = u_data['username']; user.is_admin = u_data['is_admin']; session.add(user)
                 for ch_data in data.get("channels", []):
-                    ch = db.Channel(**ch_data)
-                    session.add(ch)
-
+                    session.add(db.Channel(**ch_data))
                 for s_data in data.get("settings", []):
-                    setting = db.BotSettings(**s_data)
-                    session.add(setting)
-                
+                    session.add(db.BotSettings(**s_data))
                 if hasattr(db, 'FileContent'):
                     for c_data in data.get("content", []):
-                        content = db.FileContent(**c_data)
-                        session.add(content)
-
+                        session.add(db.FileContent(**c_data))
                 session.commit()
-                await update.message.reply_text("✅ تمت استعادة النسخة الاحتياطية بنجاح!", reply_markup=get_back_keyboard("dev"))
-            except Exception as e:
-                session.rollback()
-                raise e
-            finally:
-                session.close()
-                
+                await update.message.reply_text("✅ تمت الاستعادة!", reply_markup=get_back_keyboard("dev"))
+            except Exception as e: session.rollback(); raise e
+            finally: session.close()
         except Exception as e:
             logger.error(f"Restore Error: {e}")
-            await update.message.reply_text(f"❌ ملف تالف أو خطأ في البيانات: {e}")
-            return RESTORE_CONFIRM 
+            await update.message.reply_text(f"❌ خطأ: {e}")
+            return RESTORE_CONFIRM
     else:
-        await update.message.reply_text("❌ يرجى رفع ملف بصيغة .json فقط.")
+        await update.message.reply_text("❌ ملف JSON فقط.")
         return RESTORE_CONFIRM
-    
     return ConversationHandler.END
 
 # --- Helper Functions ---
 
 async def resolve_channel_info(context, text, forward_from_chat):
     chat_id, title, error_msg = None, None, None
-    
     if forward_from_chat:
-        if forward_from_chat.type in ['channel', 'supergroup']:
-            return forward_from_chat.id, forward_from_chat.title, None
+        if forward_from_chat.type in ['channel', 'supergroup']: return forward_from_chat.id, forward_from_chat.title, None
         return None, None, "❌ الرسالة من مستخدم، وليست قناة."
-    
     txt = text.strip()
     resolved_chat = None
     try:
-        if not " " in txt and not "/" in txt:
-             resolved_chat = await context.bot.get_chat(txt)
+        if not " " in txt and not "/" in txt: resolved_chat = await context.bot.get_chat(txt)
         if not resolved_chat and ("t.me/" in txt.lower()):
-             parts = txt.lower().split("t.me/")
-             identifier = parts[-1].split('/')[0].split('?')[0].strip()
-             if not identifier.startswith("+"):
-                 resolved_chat = await context.bot.get_chat(f"@{identifier}")
-    except Exception:
-        pass 
-    
+            parts = txt.lower().split("t.me/")
+            identifier = parts[-1].split('/')[0].split('?')[0].strip()
+            if not identifier.startswith("+"): resolved_chat = await context.bot.get_chat(f"@{identifier}")
+    except Exception: pass 
     if resolved_chat:
-        if resolved_chat.type in ['channel', 'supergroup']:
-            return resolved_chat.id, resolved_chat.title, None
+        if resolved_chat.type in ['channel', 'supergroup']: return resolved_chat.id, resolved_chat.title, None
         return None, None, "❌ المعرف لمستخدم وليس قناة."
     return None, None, "❌ لم أستطع العثور على القناة."
 
 async def finalize_channel_addition_logic(message_obj, role, context):
     pending = context.user_data.get('pending_channel')
     if not pending: return
-    
     cat = context.user_data.get('selected_category', 'اقتباسات عامة')
     fmt = context.user_data.get('selected_format', 'normal')
     time_conf = context.user_data.get('time_settings', {'type': 'default', 'value': None})
-    
     user_id = message_obj.effective_user.id if isinstance(message_obj, Update) else message_obj.from_user.id
-    
     db.add_channel(pending['id'], pending['title'], user_id, cat, fmt, time_conf['type'], time_conf['value'])
-    
     context.user_data['pending_channel'] = None
     context.user_data['selected_category'] = None
     context.user_data['time_settings'] = None
-    
     time_text = "🚀 فوري"
     if time_conf['type'] == 'fixed': time_text = f"⏰ {time_conf['value']}"
     elif time_conf['type'] == 'interval': time_text = f"⏳ كل {time_conf['value']} د"
-    
     msg = f"✅ تمت الإضافة!\n<b>{pending['title']}</b>\n📂 {cat}\n📝 {fmt}\n⏱️ {time_text}"
-    
     if isinstance(message_obj, Update):
         await message_obj.message.reply_text(msg, parse_mode='HTML', reply_markup=get_back_keyboard(role))
     else:
@@ -768,22 +660,18 @@ async def post_job_logic(context: ContextTypes.DEFAULT_TYPE, force_one=False):
                     try:
                         allowed_hours = [int(h.strip()) for h in channel.time_value.split(',')]
                         if now.hour in allowed_hours:
-                             if not channel.last_post_at or channel.last_post_at.hour != now.hour:
-                                 should_post = True
+                             if not channel.last_post_at or channel.last_post_at.hour != now.hour: should_post = True
                     except: pass
             elif channel.time_type == 'interval':
                 if channel.time_value and channel.last_post_at:
-                    if (now - channel.last_post_at).total_seconds() >= (int(channel.time_value) * 60):
-                        should_post = True
+                    if (now - channel.last_post_at).total_seconds() >= (int(channel.time_value) * 60): should_post = True
                 elif not channel.last_post_at: should_post = True
             
             if should_post:
                 content = db.get_next_content(channel.category)
                 if not content: continue
-                
                 text = f"<blockquote>{content}</blockquote>" if channel.msg_format == 'blockquote' else content
                 parse_mode = 'HTML' if channel.msg_format == 'blockquote' else None
-                
                 await context.bot.send_message(chat_id=channel.channel_id, text=text, parse_mode=parse_mode)
                 channel.last_post_at = now
                 session.commit()
@@ -812,9 +700,7 @@ async def broadcast_task_logic(bot, text):
 def get_application():
     application = Application.builder().token(config.TOKEN_1).build()
 
-    # --- إضافة المحادثات (Conversations) ---
-    
-    # 1. محادثة إضافة قناة
+    # --- المحادثات (Conversations) ---
     add_channel_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^start_add_channel$")],
         states={
@@ -822,27 +708,23 @@ def get_application():
                 MessageHandler(filters.TEXT | filters.FORWARDED, handle_text_message),
                 CallbackQueryHandler(button_handler, pattern="^(cat_|fmt_|time_)")
             ],
-            CHANNEL_TIME_INPUT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
-            ]
+            CHANNEL_TIME_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)]
         },
         fallbacks=[CallbackQueryHandler(button_handler, pattern="^back_")],
         name="add_channel_conv",
         persistent=False
     )
 
-    # 2. محادثة الإذاعة
     broadcast_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^start_broadcast$")],
         states={
-            BROADCAST_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)]
+            BROADCAST_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)]
         },
         fallbacks=[CallbackQueryHandler(button_handler, pattern="^back_")],
         name="broadcast_conv",
         persistent=False
     )
 
-    # 3. محادثة المشرفين
     admin_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(button_handler, pattern="^conv_add_admin$"),
@@ -857,7 +739,6 @@ def get_application():
         persistent=False
     )
 
-    # 4. محادثة استعادة النسخة الاحتياطية
     restore_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^start_restore$")],
         states={
@@ -870,14 +751,11 @@ def get_application():
 
     # --- تسجيل المعالجات ---
     application.add_handler(CommandHandler("start", start))
-    
     application.add_handler(add_channel_conv)
     application.add_handler(broadcast_conv)
     application.add_handler(admin_conv)
     application.add_handler(restore_conv)
-    
     application.add_handler(CallbackQueryHandler(button_handler))
-    
     application.add_handler(MessageHandler(filters.Document.MimeType("text/plain") & filters.ChatType.PRIVATE, handle_file_upload))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_text_message))
     application.add_handler(MessageHandler(filters.Regex("^تفعيل$") & filters.ChatType.GROUPS, handle_text_message))

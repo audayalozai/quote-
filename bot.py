@@ -17,7 +17,7 @@ import config
 import database as db
 
 # --- التهيئة الأولية ---
-# تأكد من استدعاء دالة init_db هنا لإنشاء الجداول
+# تأكد من استدعاء دالة init_db لإنشاء الجداول
 db.init_db()
 
 # إعداد التسجيل
@@ -550,13 +550,14 @@ async def broadcast_task_logic(bot, text):
 def get_application():
     application = Application.builder().token(config.TOKEN_1).build()
 
-    # إضافة per_message=True للتخلص من التحذيرات وجعل المحادثة أثبت
+    # تم إزالة per_message=True هنا لأنه غير مدعوم في الإصدار الجديد
     add_channel_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^start_add_channel$")],
         states={
             ADD_CHANNEL_STATE: [
                 MessageHandler(filters.TEXT | filters.FORWARDED, handle_text_message),
-                CallbackQueryHandler(button_handler, pattern="^(cat_|fmt_|time_)", per_message=True)
+                # السطر التالي تم تعديله، الحذف من السطر التالي
+                CallbackQueryHandler(button_handler, pattern="^(cat_|fmt_|time_)")
             ],
             ADD_CHANNEL_TIME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
@@ -611,7 +612,6 @@ if __name__ == '__main__':
     try:
         app = get_application()
         print("✅ البوت يعمل الآن!")
-        # أضفت drop_pending_updates=True لتجنب مشاكل الريستارت السريع
         app.run_polling(drop_pending_updates=True)
     except KeyboardInterrupt:
         print("تم الإيقاف.")

@@ -26,12 +26,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# تهيئة قاعدة البيانات
+# تهيئة قاعدة البيانات (مع تجاهل الأخطاء البسيطة للسماح للبوت بالعمل)
 try:
     db.init_db()
     logger.info("✅ Database initialized successfully.")
 except Exception as e:
-    logger.error(f"❌ Database initialization failed: {e}")
+    logger.warning(f"⚠️ Database init warning (might be temporary): {e}")
 
 # --- الثوابت والبيانات الثابتة ---
 CATEGORIES = [
@@ -50,6 +50,26 @@ DEL_ADMIN_INPUT = 5
 RESTORE_CONFIRM = 6
 
 # --- دوال مساعدة ---
+
+def get_role(user_id):
+    """
+    تحديد صلاحية المستخدم بأمان تام.
+    تعطي الأولوية للمطور، ثم الأدمن، ثم المستخدم العادي.
+    """
+    # 1. التحقق من المطور (الأولوية القصوى)
+    if user_id == config.DEVELOPER_ID: 
+        return "dev"
+    
+    # 2. التحقق من الأدمن (مع معالجة الأخطاء إذا لم تعمل الدالة في db)
+    try:
+        if db.is_admin(user_id): 
+            return "admin"
+    except Exception as e:
+        logger.error(f"Error checking admin status in DB: {e}")
+        # إذا فشلت قاعدة البيانات، نعتبره مستخدم عادي لتجنب توقف البوت
+        pass
+        
+    return "user"
 
 async def is_bot_admin_in_channel(bot, channel_id):
     try:
@@ -75,11 +95,6 @@ async def send_notification_to_admins(bot, message: str):
     finally:
         session.close()
 
-def get_role(user_id):
-    if user_id == config.DEVELOPER_ID: return "dev"
-    if db.is_admin(user_id): return "admin"
-    return "user"
-
 def get_back_keyboard(role):
     return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")]])
 
@@ -103,6 +118,7 @@ def get_keyboard_by_role(role):
         title = "لوحة المطور 🔧"
         
     elif role == "admin":
+        # زر "إضافة قناة" موجود هنا للمشرفين
         btns = [
             [InlineKeyboardButton("➕ إضافة قناة", callback_data="start_add_channel")],
             [InlineKeyboardButton("📊 الإحصائيات", callback_data="show_stats")],
@@ -118,7 +134,7 @@ def get_keyboard_by_role(role):
         btns = [
             [InlineKeyboardButton("💭 تصفح الأقسام", callback_data="user_browse_categories")],
             [InlineKeyboardButton("🔖 اقتباس عشوائي", callback_data="user_random_quote")],
-            [InlineKeyboardButton("📢 القناة الرسمية", url="https://t.me/YourChannel")],
+            [InlineKeyboardButton("➕ إضافة البوت لمجموعة", url="https://t.me/YourBot?startgroup=true")], # رابط إضافة عام
             [InlineKeyboardButton("❓ كيف يعمل البوت؟", callback_data="user_help")]
         ]
         title = "القائمة الرئيسية 🏠"
@@ -151,27 +167,42 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username
     
-    session = db.Session()
+    # محاولة تسجيل المستخدم في قاعدة البيانات
     try:
-        user = session.query(db.User).filter_by(user_id=user_id).first()
-        if not user:
-            user = db.User(user_id=user_id, username=username)
-            session.add(user)
-            session.commit()
-            user_tag = f"@{username}" if username else "بدون يوزر"
-            msg = f"🔔 <b>تنبيه:</b> دخول شخص جديد.\n👤 الاسم: {user_tag}\n🆔 الآيدي: <code>{user_id}</code>"
-            await send_notification_to_admins(context.bot, msg)
-        elif username != user.username:
-            user.username = username
-            session.commit()
+        session = db.Session()
+        try:
+            user = session.query(db.User).filter_by(user_id=user_id).first()
+            if not user:
+                user = db.User(user_id=user_id, username=username)
+                session.add(user)
+                session.commit()
+                user_tag = f"@{username}" if username else "بدون يوزر"
+                msg = f"🔔 <b>تنبيه:</b> دخول شخص جديد.\n👤 الاسم: {user_tag}\n🆔 الآيدي: <code>{user_id}</code>"
+                asyncio.create_task(send_notification_to_admins(context.bot, msg))
+            elif username != user.username:
+                user.username = username
+                session.commit()
+        except Exception as e:
+            logger.error(f"DB Error in start: {e}")
+        finally:
+            session.close()
     except Exception as e:
-        logger.error(f"Error in start: {e}")
-    finally:
-        session.close()
+        logger.error(f"Critical DB Error: {e}")
 
-    kb, title = get_keyboard_by_role(get_role(user_id))
+    # تحديد الصلاحية بشكل آمن
+    try:
+        role = get_role(user_id)
+    except Exception as e:
+        logger.error(f"Role Error: {e}")
+        role = "user" # افتراضي في حال وجود خطأ
+
+    kb, title = get_keyboard_by_role(role)
     welcome_text = "أهلاً بك في بوت النشر التلقائي! 🤖"
-    await update.message.reply_text(f"{welcome_text}\n\n🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
+    
+    try:
+        await update.message.reply_text(f"{welcome_text}\n\n🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
+    except Exception as e:
+        logger.error(f"Reply Error: {e}")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -258,6 +289,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- بداية المحادثات ---
     if data == "start_add_channel":
+        # التأكد أن المستخدم مشرف
+        if role not in ["dev", "admin"]:
+             await query.answer("عذراً، هذه الميزة للمشرفين فقط.", show_alert=True)
+             return
+             
         context.user_data.clear()
         await query.edit_message_text("✏️ أرسل الآن رابط القناة أو تحويل رسالة:", reply_markup=get_back_keyboard(role))
         return CHANNEL_INPUT
@@ -704,13 +740,10 @@ def get_application():
     application = Application.builder().token(config.TOKEN_1).build()
 
     # --- المحادثات (Conversations) ---
-    # تم تعديل فلتر TEXT ليشمل التحويلات أيضاً عبر الكود الداخلي لتجنب مشاكل التوافق
-    
     add_channel_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^start_add_channel$")],
         states={
             CHANNEL_INPUT: [
-                # قبول أي نص، ثم نتأكد إذا كان تحويل أو رابط داخل الدالة
                 MessageHandler(filters.TEXT, handle_text_message),
                 CallbackQueryHandler(button_handler, pattern="^(cat_|fmt_|time_)")
             ],
@@ -745,7 +778,6 @@ def get_application():
         persistent=False
     )
 
-    # تم تعديل فلتر الملفات لاستخدام Document.ALL وتأكد من الامتداد داخل الدالة
     restore_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^start_restore$")],
         states={

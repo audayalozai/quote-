@@ -44,7 +44,7 @@ CATEGORIES = [
 # حالات المحادثة (States)
 CHANNEL_INPUT = 1
 CHANNEL_TIME_INPUT = 2
-BROADCAST_INPUT = 3       # <--- تم تصحيح الاسم ليكون متسقاً
+BROADCAST_INPUT = 3
 ADD_ADMIN_INPUT = 4
 DEL_ADMIN_INPUT = 5
 RESTORE_CONFIRM = 6
@@ -265,7 +265,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "start_broadcast" and role in ["dev", "admin"]:
         context.user_data.clear()
         await query.edit_message_text("✏️ أرسل الرسالة للإذاعة:", reply_markup=get_back_keyboard(role))
-        return BROADCAST_INPUT  # <--- تصحيح: استخدام الاسم الصحيح
+        return BROADCAST_INPUT
 
     if data == "manage_admins" and role == "dev":
         keyboard = [
@@ -432,12 +432,14 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     role = get_role(user_id)
     text = update.message.text
-    # جلب الحالة الحالية
     current_state = context.user_data.get('conv_state')
 
     # منطق إضافة القناة
     if current_state == CHANNEL_INPUT:
-        chat_id, title, error_msg = await resolve_channel_info(context, text, update.message.forward_from_chat)
+        # التحقق مما إذا كانت الرسالة محولة (Forward)
+        forward_chat = update.message.forward_from_chat
+        chat_id, title, error_msg = await resolve_channel_info(context, text, forward_chat)
+        
         if error_msg:
             await update.message.reply_text(error_msg, reply_markup=get_back_keyboard(role))
             return ConversationHandler.END
@@ -469,8 +471,8 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("❌ قيمة غير صحيحة.")
             return CHANNEL_TIME_INPUT
 
-    # منطق الإذاعة (تم التصحيح)
-    if current_state == BROADCAST_INPUT: # <--- استخدام الثابت الصحيح
+    # منطق الإذاعة
+    if current_state == BROADCAST_INPUT:
         await update.message.reply_text("⏳ جاري الإذاعة...")
         asyncio.create_task(broadcast_task_logic(context.bot, text))
         return ConversationHandler.END
@@ -557,7 +559,8 @@ async def create_backup(bot, user_id):
 
 async def handle_restore_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
-    if document.mime_type == "application/json" or document.file_name.endswith('.json'):
+    # التحقق من امتداد الملف داخل الدالة (أكثر أماناً)
+    if document and (document.file_name.endswith('.json') or document.mime_type == "application/json"):
         await update.message.reply_text("⏳ جاري استعادة البيانات...")
         try:
             file = await document.get_file()
@@ -701,11 +704,14 @@ def get_application():
     application = Application.builder().token(config.TOKEN_1).build()
 
     # --- المحادثات (Conversations) ---
+    # تم تعديل فلتر TEXT ليشمل التحويلات أيضاً عبر الكود الداخلي لتجنب مشاكل التوافق
+    
     add_channel_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^start_add_channel$")],
         states={
             CHANNEL_INPUT: [
-                MessageHandler(filters.TEXT | filters.FORWARDED, handle_text_message),
+                # قبول أي نص، ثم نتأكد إذا كان تحويل أو رابط داخل الدالة
+                MessageHandler(filters.TEXT, handle_text_message),
                 CallbackQueryHandler(button_handler, pattern="^(cat_|fmt_|time_)")
             ],
             CHANNEL_TIME_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)]
@@ -739,10 +745,11 @@ def get_application():
         persistent=False
     )
 
+    # تم تعديل فلتر الملفات لاستخدام Document.ALL وتأكد من الامتداد داخل الدالة
     restore_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^start_restore$")],
         states={
-            RESTORE_CONFIRM: [MessageHandler(filters.Document.Extension("json") | filters.Document.MimeType("application/json"), handle_restore_file)]
+            RESTORE_CONFIRM: [MessageHandler(filters.Document.ALL, handle_restore_file)]
         },
         fallbacks=[CallbackQueryHandler(button_handler, pattern="^back_dev$")],
         name="restore_conv",

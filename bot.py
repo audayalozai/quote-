@@ -11,8 +11,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
     ChatMemberHandler,
-    ConversationHandler,
-    PickledPersistence
+    ConversationHandler
 )
 import config
 import database as db
@@ -25,7 +24,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- الثوابت والبيانات الثابتة ---
-# تم استخراج الأقسام هنا لتسهيل تعديلها مستقبلاً
 CATEGORIES = [
     ("❤️ حب", "حب"),
     ("🎂 عيد ميلاد", "عيد ميلاد"),
@@ -39,10 +37,6 @@ ADD_CHANNEL_TIME = 2
 BROADCAST_STATE = 3
 ADD_ADMIN_STATE = 4
 DEL_ADMIN_STATE = 5
-
-# إعداد الحفظ المؤقت (Persistence)
-# هذا يحفظ بيانات المستخدمين والمراحل التي وصلوا لها حتى لو تم إيقاف البوت
-persistence = PickledPersistence(filepath="bot_data.pkl")
 
 # --- دوال مساعدة ---
 
@@ -164,7 +158,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data in ["back_home", "back_dev", "back_admin", "back_user"]:
         context.user_data.clear() # تنظيف البيانات المؤقتة عند العودة للرئيسية
         kb, title = get_keyboard_by_role(role)
-        # تحديد العنوان الصحيح للرجوع
         if data == "back_home": kb, title = get_keyboard_by_role("user")
         elif data == "back_dev": kb, title = get_keyboard_by_role("dev")
         await query.edit_message_text(f"🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
@@ -229,7 +222,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- إدارة الملفات ---
     if data == "manage_files" and role in ["dev", "admin"]:
-        # توليد أزرار الرفع بناءً على القوائم
         keyboard = [[InlineKeyboardButton(name, callback_data=f"upload_{code}")] for name, code in CATEGORIES]
         keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")])
         await query.edit_message_text("اختر القسم لرفع ملفات الاقتباسات (txt):", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -289,7 +281,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         finally: session.close()
         await query.edit_message_text(msg, parse_mode='HTML', reply_markup=get_back_keyboard(role))
 
-    # منطق التعديل التفصيلي (اختصار للكود)
+    # منطق التعديل التفصيلي
     if data == "edit_cat_select":
         await query.edit_message_text("اختر المحتوى:", reply_markup=get_categories_keyboard(f"set_edit_cat_{context.user_data['editing_channel_id']}"))
     if data.startswith("set_edit_cat_"):
@@ -318,7 +310,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "edit_time_select":
         await query.edit_message_text("اختر الوقت:", reply_markup=get_time_keyboard(f"set_edit_time_{context.user_data['editing_channel_id']}"))
     if data.startswith("set_edit_time_"):
-        # يمكن توسيع هذا الجزء لطلب تفاصيل جديدة كالمحادثة العادية
         time_type = data.split("_")[-1]
         session = db.Session()
         try:
@@ -327,7 +318,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ch.time_type = time_type
                 ch.time_value = None if time_type == 'default' else ch.time_value
                 session.commit()
-                msg = "✅ تم تغيير نوع التوقيت. (للتفاصيل الدقيقة استخدم الأوامر اليدوية أو قم بتطوير الكود)"
+                msg = "✅ تم تغيير نوع التوقيت."
         except: msg = "❌ خطأ."
         finally: session.close()
         await query.edit_message_text(msg, parse_mode='HTML', reply_markup=get_back_keyboard(role))
@@ -353,10 +344,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await post_job_logic(context, force_one=True)
         await query.edit_message_text("تم النشر الفوري ✅", reply_markup=get_back_keyboard(role))
 
-# --- المعالجات النصية والملفات (Text & File Handlers) ---
+# --- المعالجات النصية والملفات ---
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج الرسائل النصية العامة (يعمل مع المحادثات)"""
+    """معالج الرسائل النصية العامة"""
     user_id = update.effective_user.id
     role = get_role(user_id)
     text = update.message.text
@@ -370,21 +361,19 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         if await is_bot_admin_in_channel(context.bot, chat_id):
             context.user_data['pending_channel'] = {'id': chat_id, 'title': title}
-            context.user_data['conv_state'] = None # Clear temp state to proceed to button selection
+            context.user_data['conv_state'] = None 
             await update.message.reply_text(f"✅ تم التحقق من: <b>{title}</b>\n\nاختر القسم:", parse_mode='HTML', reply_markup=get_categories_keyboard("cat"))
-            # ملاحظة: سنعتمد على الزر لإكمال المحادثة، لذا سننتهي من الـ Handler هنا لكن نحتفظ بالبيانات
-            return ADD_CHANNEL_STATE # نرجع نفس الحالة لضمان بقاء المحادثة نشطة حتى يتم الاختيار
+            return ADD_CHANNEL_STATE
         else:
             await update.message.reply_text("⛔️ <b>البوت ليس مشرفاً!</b>", parse_mode='HTML')
             return ConversationHandler.END
 
-    # 2. حالة تحديد الوقت بالتفصيل (Step 2: Time Details)
+    # 2. حالة تحديد الوقت
     if context.user_data.get('conv_state') == ADD_CHANNEL_TIME:
         time_type = context.user_data.get('time_type')
         val_valid = False
         
         if time_type == "fixed":
-            # تحقق بسيط
             val_valid = all(h.strip().isdigit() for h in text.split(','))
             if val_valid: context.user_data['time_settings'] = {'type': 'fixed', 'value': text}
         
@@ -394,7 +383,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 context.user_data['time_settings'] = {'type': 'interval', 'value': text}
         
         if val_valid:
-            # محاكاة finalize ولكن via message
             await finalize_channel_addition_logic(update, role, context)
             return ConversationHandler.END
         else:
@@ -407,7 +395,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         asyncio.create_task(broadcast_task_logic(context.bot, text))
         return ConversationHandler.END
 
-    # 4. حالة إضافة/حذف مشرف
+    # 4. حالة إدارة المشرفين
     if context.user_data.get('conv_state') == ADD_ADMIN_STATE:
         target = text.strip().replace("@", "")
         session = db.Session()
@@ -438,7 +426,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("✅ تم التفعيل في المجموعة!")
 
 async def handle_file_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج رفع الملفات (لا يتطلب ConversationHandler بالضرورة لكن وضعه هنا للنظافة)"""
+    """معالج رفع الملفات"""
     document = update.message.document
     category = context.user_data.get('upload_category')
     
@@ -472,29 +460,25 @@ async def resolve_channel_info(context, text, forward_from_chat):
     
     # 2. Text/Link
     txt = text.strip()
-    
-    # Try direct resolve
     resolved_chat = None
     try:
-        # Try as is (username or id)
         if not " " in txt and not "/" in txt:
              resolved_chat = await context.bot.get_chat(txt)
         
-        # Try Link
         if not resolved_chat and ("t.me/" in txt.lower()):
              parts = txt.lower().split("t.me/")
              identifier = parts[-1].split('/')[0].split('?')[0].strip()
              if not identifier.startswith("+"):
                  resolved_chat = await context.bot.get_chat(f"@{identifier}")
     except Exception:
-        pass # Failed to resolve via API directly
+        pass 
     
     if resolved_chat:
         if resolved_chat.type in ['channel', 'supergroup']:
             return resolved_chat.id, resolved_chat.title, None
         return None, None, "❌ المعرف لمستخدم وليس قناة."
         
-    return None, None, "❌ لم أستطع العثور على القناة. تأكد أنني مشرف والرابط عام."
+    return None, None, "❌ لم أستطع العثور على القناة."
 
 async def finalize_channel_addition_logic(message_obj, role, context):
     """منطق حفظ القناة النهائي"""
@@ -524,7 +508,7 @@ async def finalize_channel_addition_logic(message_obj, role, context):
     else:
         await message_obj.edit_message_text(msg, parse_mode='HTML', reply_markup=get_back_keyboard(role))
 
-# --- المنطق الخلفي (Jobs & Tasks) ---
+# --- المنطق الخلفي ---
 
 async def post_job_logic(context: ContextTypes.DEFAULT_TYPE, force_one=False):
     session = db.Session()
@@ -535,10 +519,6 @@ async def post_job_logic(context: ContextTypes.DEFAULT_TYPE, force_one=False):
     except Exception as e:
         logger.error(f"DB Error: {e}")
         return
-    finally:
-        # Note: Don't close session here yet if we are iterating, but we need to be careful.
-        # Better to keep session open or use scoped_session.
-        pass
 
     now = datetime.now()
     for channel in channels:
@@ -594,16 +574,15 @@ async def broadcast_task_logic(bot, text):
 # --- Main Application Setup ---
 
 def get_application():
-    # استخدام Persistence لحفظ البيانات
-    application = Application.builder().token(config.TOKEN_1).persistence(persistence).build()
+    # تم إزالة persistence هنا لأنه يسبب خطأ في الإصدار الجديد
+    application = Application.builder().token(config.TOKEN_1).build()
 
-    # 1. محادثة إضافة قناة (تتكون من أزرار ونصوص)
+    # محادثة إضافة قناة
     add_channel_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^start_add_channel$")],
         states={
             ADD_CHANNEL_STATE: [
                 MessageHandler(filters.TEXT | filters.FORWARDED, handle_text_message),
-                # السماح بالأزرار للانتقال للخطوة التالية (اختيار القسم/الوقت)
                 CallbackQueryHandler(button_handler, pattern="^(cat_|fmt_|time_)") 
             ],
             ADD_CHANNEL_TIME: [
@@ -611,22 +590,21 @@ def get_application():
             ]
         },
         fallbacks=[CallbackQueryHandler(button_handler, pattern="^back_")],
-        name="add_channel_conv",
-        persistent=True
+        name="add_channel_conv"
+        # تم إزالة persistent=True
     )
 
-    # 2. محادثة الإذاعة
+    # محادثة الإذاعة
     broadcast_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^start_broadcast$")],
         states={
             BROADCAST_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)]
         },
         fallbacks=[CallbackQueryHandler(button_handler, pattern="^back_")],
-        name="broadcast_conv",
-        persistent=True
+        name="broadcast_conv"
     )
 
-    # 3. محادثة إدارة المشرفين
+    # محادثة إدارة المشرفين
     admin_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(button_handler, pattern="^conv_add_admin$"),
@@ -637,31 +615,23 @@ def get_application():
             DEL_ADMIN_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)]
         },
         fallbacks=[CallbackQueryHandler(button_handler, pattern="^back_")],
-        name="admin_conv",
-        persistent=True
+        name="admin_conv"
     )
 
-    # إضافة المعالجات
     application.add_handler(CommandHandler("start", start))
     
-    # إضافة المحادثات (الأولوية مهمة، توضع قبل معالج الأزرار العام)
     application.add_handler(add_channel_conv)
     application.add_handler(broadcast_conv)
     application.add_handler(admin_conv)
     
-    # معالج الأزرار العام (للتنقل والقوائم)
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # معالج الرسائل (يغطي النصوص والملفات)
-    # نستخدم `~filters.COMMAND` لتجنب التداخل مع الأمر /start مثلاً
     application.add_handler(MessageHandler(filters.Document.MimeType("text/plain") & filters.ChatType.PRIVATE, handle_file_upload))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_text_message))
     application.add_handler(MessageHandler(filters.Regex("^تفعيل$") & filters.ChatType.GROUPS, handle_text_message))
     
-    # إدارة تغيير حالة المشرف في القنوات
-    application.add_handler(ChatMemberHandler(lambda u, c: None, ChatMemberHandler.CHAT_MEMBER)) # Simplified for brevity, needs implementation like original
+    application.add_handler(ChatMemberHandler(lambda u, c: None, ChatMemberHandler.CHAT_MEMBER))
 
-    # مهمة النشر الدورية
     if application.job_queue:
         application.job_queue.run_repeating(post_job_logic, interval=60, first=10)
 

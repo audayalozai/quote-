@@ -2,10 +2,9 @@ import logging
 import asyncio
 import random
 import json
-import io
 import os
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import Optional, Dict
 
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
@@ -21,7 +20,7 @@ from telegram.ext import (
     ConversationHandler
 )
 
-# --- إعدادات البوت (هام جداً: عدل هذه القيم) ---
+# --- إعدادات البوت ---
 TOKEN = "6741306329:AAG-or3-0oGmr3QJWN-kCC7tYxP7FTLlYgo"  # ضع التوكن هنا
 DEVELOPER_ID = 778375826       # ضع آيديك الرقمي هنا
 ADMINS_IDS = [778375826]
@@ -34,11 +33,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- قاعدة البيانات ---
+# --- قاعدة البيانات (SQLAlchemy) ---
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, func
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-engine = create_engine('sqlite:///bot_data.db', echo=False)
+# إضافة connect_args لإصلاح مشكلة الترابط مع SQLite
+engine = create_engine('sqlite:///bot_data.db', echo=False, connect_args={"check_same_thread": False})
 Base = declarative_base()
 Session = sessionmaker(bind=engine)
 
@@ -87,9 +87,11 @@ Base.metadata.create_all(engine)
 
 # --- دوال مساعدة ---
 def db_log_action(user_id, action, details=""):
+    # استخدام 0 للمستخدم في العمليات الذاتية للبوت لتجنب الأخطاء
+    uid = user_id if user_id else 0
     session = Session()
     try:
-        log = ActivityLog(user_id=user_id, action=action, details=details)
+        log = ActivityLog(user_id=uid, action=action, details=details)
         session.add(log)
         session.commit()
     except Exception as e:
@@ -110,6 +112,18 @@ def get_role(user_id):
         session.close()
     return "user"
 
+def get_stats():
+    session = Session()
+    try:
+        users_count = session.query(User).count()
+        admins_count = session.query(User).filter_by(is_admin=True).count()
+        channels_count = session.query(Channel).count()
+        active_channels = session.query(Channel).filter_by(is_active=True).count()
+        content_count = session.query(Content).count()
+        return f"📊 <b>إحصائيات البوت:</b>\n\n👥 المستخدمين: {users_count}\n🛡️ المشرفين: {admins_count}\n📢 القنوات: {channels_count} (نشط: {active_channels})\n📝 المحتوى: {content_count} نص."
+    finally:
+        session.close()
+
 # --- الثوابت ---
 CATEGORIES = [
     ("❤️ حب", "حب"),
@@ -120,6 +134,7 @@ CATEGORIES = [
     ("😂 مضحك", "مضحك")
 ]
 
+# حالات المحادثة
 STATE_ADD_CHANNEL_LINK = 1
 STATE_ADD_CHANNEL_CATEGORY = 2
 STATE_ADD_CHANNEL_FORMAT = 3
@@ -200,6 +215,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif user.username != username:
             user.username = username
             session.commit()
+    except Exception as e:
+        logger.error(f"DB Error in start: {e}")
     finally:
         session.close()
 
@@ -236,9 +253,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- القنوات ---
     if data == "add_channel_start":
         context.user_data.clear()
-        # تعيين الحالة يدوياً
-        context.user_data['state'] = STATE_ADD_CHANNEL_LINK
-        await query.edit_message_text("⚙️ <b>خطوة 1/4:</b>\n\nيرجى إرسال رابط القناة (معرف مثل @channel) أو تحويل رسالة منها.", reply_markup=get_back_keyboard(role), parse_mode='HTML')
+        await query.edit_message_text("⚙️ <b>خطوة 1/4:</b>\n\nيرجى إرسال رابط القناة (مثل @channel) أو تحويل رسالة.", reply_markup=get_back_keyboard(role), parse_mode='HTML')
         return STATE_ADD_CHANNEL_LINK
 
     if data == "manage_channels":
@@ -293,7 +308,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("upload_"):
         cat = data.split("_")[1]
         context.user_data['upload_category'] = cat
-        context.user_data['state'] = STATE_UPLOAD_CONTENT
         await query.edit_message_text(f"أرسل ملف .txt الآن.", reply_markup=get_back_keyboard(role))
         return STATE_UPLOAD_CONTENT
 
@@ -301,14 +315,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("cat_select_"):
         cat = data.split("_")[-1]
         context.user_data['add_cat'] = cat
-        context.user_data['state'] = STATE_ADD_CHANNEL_FORMAT # تحديث الحالة
         await query.edit_message_text("⚙️ <b>خطوة 3/4:</b>\n\nاختر شكل الرسالة:", reply_markup=get_format_keyboard("fmt_select"))
         return STATE_ADD_CHANNEL_FORMAT
 
     if data.startswith("fmt_select_"):
         fmt = data.split("_")[-1]
         context.user_data['add_fmt'] = fmt
-        context.user_data['state'] = STATE_ADD_CHANNEL_TIME # تحديث الحالة
         await query.edit_message_text("⚙️ <b>خطوة 4/4:</b>\n\nاختر توقيت النشر:", reply_markup=get_time_keyboard("time_select"))
         return STATE_ADD_CHANNEL_TIME
 
@@ -317,7 +329,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['add_time_type'] = time_type
         
         if time_type == "default":
-            save_new_channel(context)
+            # نحتاج للمستخدم ID هنا، يمكن الوصول له عبر update في القسم السابق
+            # لكننا في button_handler، سيتم الحفظ عند إغلاق المحادثة
+            save_new_channel(context, None) 
             await query.edit_message_text("✅ تم إضافة القناة بنجاح (توقيت افتراضي).", reply_markup=get_main_menu(role)[0])
             return ConversationHandler.END
         else:
@@ -325,7 +339,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if time_type == "fixed": msg = "أرسل الساعات مفصولة بفاصلة (مثال: 10, 14, 20):"
             elif time_type == "interval": msg = "أرسل عدد الدقائق (مثال: 60):"
             await query.edit_message_text(msg, reply_markup=get_back_keyboard(role))
-            # نستمر في نفس الحالة TIME بانتظار النص
             return STATE_ADD_CHANNEL_TIME
 
     # --- أوامر أخرى ---
@@ -396,150 +409,137 @@ async def send_user_content(query, cat_code):
     except:
         pass
 
-# --- معالجة النصوص والملفات (التحسين الجديد) ---
+# --- معالجات النصوص والملفات (منفصلة لكل حالة) ---
 
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    state = context.user_data.get('state')
+async def handle_channel_link_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    info, error = await resolve_channel(context.bot, update.message.text, update.message.forward_from_chat)
     
-    # 1. حالة إضافة رابط القناة
-    if state == STATE_ADD_CHANNEL_LINK:
-        info, error = await resolve_channel(context.bot, update.message.text, update.message.forward_from_chat)
-        
-        if info:
-            context.user_data['pending_channel'] = info
-            context.user_data['state'] = STATE_ADD_CHANNEL_CATEGORY
-            await update.message.reply_text(
-                f"✅ تم العثور على القناة: <b>{info['title']}</b>\n\n⚙️ <b>خطوة 2/4:</b>\n\nاختر القسم:",
-                reply_markup=get_categories_keyboard("cat_select"),
-                parse_mode='HTML'
-            )
-        else:
-            # عند الخطأ، نظهر الرسالة ولكن **لا نغلق المحادثة** ولا نمسح الحالة ليسمح بإعادة المحاولة
-            await update.message.reply_text(f"❌ فشل التحقق: {error}\n\nتأكد من إرسال معرف (مثل @channel) أو تحويل رسالة، وأن البوت مشرف في القناة.")
-        return
+    if info:
+        context.user_data['pending_channel'] = info
+        # نحفظ user_id في user_data لاستخدامه عند الحفظ النهائي
+        context.user_data['adder_id'] = user_id
+        await update.message.reply_text(
+            f"✅ تم العثور على القناة: <b>{info['title']}</b>\n\n⚙️ <b>خطوة 2/4:</b>\n\nاختر القسم:",
+            reply_markup=get_categories_keyboard("cat_select"),
+            parse_mode='HTML'
+        )
+        return STATE_ADD_CHANNEL_CATEGORY
+    else:
+        await update.message.reply_text(f"❌ فشل التحقق: {error}\n\nيرجى إعادة المحاولة.")
+        return STATE_ADD_CHANNEL_LINK
 
-    # 2. حالة توقيت النشر
-    if state == STATE_ADD_CHANNEL_TIME:
-        time_type = context.user_data.get('add_time_type')
-        val = update.message.text.strip()
-        
-        valid = False
-        if time_type == "fixed":
-            valid = all(x.strip().isdigit() for x in val.split(','))
-        elif time_type == "interval":
-            valid = val.isdigit()
-        
-        if valid:
-            context.user_data['add_time_value'] = val
-            save_new_channel(context)
-            role = get_role(update.effective_user.id)
-            await update.message.reply_text("✅ تمت إضافة القناة بنجاح!", reply_markup=get_main_menu(role)[0])
-            context.user_data.clear() # مسح البيانات فقط عند النجاح النهائي
-        else:
-            await update.message.reply_text("❌ صيغة التوقيت غير صحيحة. حاول مرة أخرى.")
-        return
+async def handle_channel_time_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    time_type = context.user_data.get('add_time_type')
+    val = update.message.text.strip()
+    
+    valid = False
+    if time_type == "fixed":
+        valid = all(x.strip().isdigit() for x in val.split(','))
+    elif time_type == "interval":
+        valid = val.isdigit()
+    
+    if valid:
+        context.user_data['add_time_value'] = val
+        save_new_channel(context, user_id)
+        role = get_role(user_id)
+        await update.message.reply_text("✅ تمت إضافة القناة بنجاح!", reply_markup=get_main_menu(role)[0])
+        return ConversationHandler.END
+    else:
+        await update.message.reply_text("❌ صيغة التوقيت غير صحيحة. حاول مرة أخرى.")
+        return STATE_ADD_CHANNEL_TIME
 
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('state') == STATE_UPLOAD_CONTENT:
-        doc = update.message.document
-        cat = context.user_data.get('upload_category')
-        
-        if doc.mime_type != "text/plain":
-            await update.message.reply_text("❌ ملف .txt فقط.")
-            return
-        
-        await update.message.reply_text("⏳ جاري المعالجة...")
-        try:
-            file = await doc.get_file()
-            bytes_io = await file.download_as_bytearray()
-            content_list = bytes_io.decode('utf-8').splitlines()
-            count = 0
-            session = Session()
-            for line in content_list:
-                if line.strip():
-                    session.add(Content(category=cat, text=line.strip()))
-                    count += 1
-            session.commit()
-            session.close()
-            role = get_role(update.effective_user.id)
-            await update.message.reply_text(f"✅ تمت إضافة {count} نص.", reply_markup=get_main_menu(role)[0], parse_mode='HTML')
-            context.user_data.clear()
-        except Exception as e:
-            logger.error(f"Upload error: {e}")
-            await update.message.reply_text("❌ حدث خطأ.")
+async def handle_broadcast_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    await update.message.reply_text("⏳ جاري الإرسال...")
+    asyncio.create_task(broadcast_worker(context.bot, text))
+    role = get_role(update.effective_user.id)
+    await update.message.reply_text("✅ تمت الإذاعة بنجاح.", reply_markup=get_main_menu(role)[0])
+    return ConversationHandler.END
+
+async def handle_upload_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    doc = update.message.document
+    cat = context.user_data.get('upload_category')
+    
+    if doc.mime_type != "text/plain":
+        await update.message.reply_text("❌ ملف .txt فقط.")
+        return STATE_UPLOAD_CONTENT
+    
+    await update.message.reply_text("⏳ جاري المعالجة...")
+    try:
+        file = await doc.get_file()
+        bytes_io = await file.download_as_bytearray()
+        content_list = bytes_io.decode('utf-8').splitlines()
+        count = 0
+        session = Session()
+        for line in content_list:
+            if line.strip():
+                session.add(Content(category=cat, text=line.strip()))
+                count += 1
+        session.commit()
+        session.close()
+        role = get_role(update.effective_user.id)
+        await update.message.reply_text(f"✅ تمت إضافة {count} نص.", reply_markup=get_main_menu(role)[0], parse_mode='HTML')
+        return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        await update.message.reply_text("❌ حدث خطأ أثناء المعالجة.")
+        return STATE_UPLOAD_CONTENT
 
 # --- دالة حل القنوات المحسنة ---
 async def resolve_channel(bot, text, forward_chat):
-    """
-    ترجع (dict_info, None) عند النجاح أو (None, error_message) عند الفشل.
-    """
     chat_id, title = None, None
     
-    # 1. محاولة من الرسالة المحولة (أفضل طريقة)
     if forward_chat:
         if forward_chat.type in ['channel', 'supergroup']:
             chat_id = forward_chat.id
             title = forward_chat.title
         else:
-            return None, "الرسالة المحولة ليست من قناة أو مجموعة."
+            return None, "الرسالة المحولة ليست من قناة."
     
-    # 2. محاولة من النص (الرابط أو المعرف)
     if not chat_id:
         txt = text.strip()
         try:
-            # التحقق من الروابط غير المدعومة أولاً لتوضيح الأمر للمستخدم
             if "t.me/+" in txt or "joinchat" in txt:
-                return None, "روابط الانضمام (t.me/+) غير مدعومة. استخدم معرف القناة (مثل @name) أو قم بتحويل رسالة."
-            
+                return None, "روابط الانضمام غير مدعومة. استخدم المعرف أو التحويل."
             if "t.me/c/" in txt:
-                return None, "الروابط العميقة (Deep Links) غير مدعومة مباشرة. يرجى تحويل رسالة من القناة."
+                return None, "الروابط العميقة غير مدعومة مباشرة."
 
-            # المحاولة عبر المعرف
             if txt.startswith("@"):
                 chat_obj = await bot.get_chat(txt)
                 chat_id = chat_obj.id
                 title = chat_obj.title
-            
-            # المحاولة عبر الرابط العام
             elif "t.me/" in txt:
                 username = txt.split("t.me/")[-1].split("/")[0].split("?")[0]
                 chat_obj = await bot.get_chat(f"@{username}")
                 chat_id = chat_obj.id
                 title = chat_obj.title
-            
         except Exception as e:
-            # رسائل خطأ واضحة
             err_str = str(e)
-            if "Chat not found" in err_str:
-                return None, "لم يتم العثور على القناة. تأكد من المعرف أو أن البوت عضو فيها."
-            if "Forbidden" in err_str or "bot was blocked" in err_str:
-                return None, "البوت محظور أو ليس لديه صلاحيات للوصول للقناة."
-            return None, f"خطأ غير متوقع: {err_str}"
+            if "Chat not found" in err_str: return None, "القناة غير موجودة."
+            if "Forbidden" in err_str: return None, "البوت ليس مشرفاً أو محظور."
+            return None, f"خطأ: {err_str}"
     
-    if not chat_id:
-        return None, "لم أستطع تحديد القناة من النص المرسل."
+    if not chat_id: return None, "لم أستطع تحديد القناة."
 
-    # 3. التحقق من صلاحيات البوت (هل هو مشرف؟)
     try:
         member = await bot.get_chat_member(chat_id, bot.id)
         if member.status in ['administrator', 'creator']:
             return {'id': chat_id, 'title': title}, None
         else:
-            return None, "البوت موجود في القناة لكنه ليس مشرفاً. يجب رفع البوت مشرفاً أولاً."
+            return None, "البوت ليس مشرفاً."
     except Exception as e:
-        return None, f"فشل التحقق من الصلاحيات: {e}"
+        return None, f"فشل التحقق: {e}"
 
-def save_new_channel(context):
+def save_new_channel(context, user_id):
     data = context.user_data.get('pending_channel')
     if not data: return
     
     session = Session()
     try:
-        # التأكد من عدم وجود تكرار
         exists = session.query(Channel).filter_by(channel_id=data['id']).first()
-        if exists:
-            logger.info(f"Channel {data['title']} already exists.")
-            return
+        if exists: return
 
         new_ch = Channel(
             channel_id=data['id'],
@@ -552,7 +552,10 @@ def save_new_channel(context):
         )
         session.add(new_ch)
         session.commit()
-        db_log_action(context._user_id, "ADD_CHANNEL", f"Added {data['title']}")
+        # استخدام user_id الذي تم حفظه مسبقاً
+        db_log_action(user_id, "ADD_CHANNEL", f"Added {data['title']}")
+    except Exception as e:
+        logger.error(f"Error saving channel: {e}")
     finally:
         session.close()
 
@@ -605,12 +608,19 @@ async def post_to_channels_logic(bot, force_run=False):
     finally:
         session.close()
 
-def get_stats():
+async def broadcast_worker(bot, text):
     session = Session()
     try:
-        u = session.query(User).count()
-        c = session.query(Content).count()
-        return f"👥 {u} مستخدم | 📝 {c} نص."
+        users = session.query(User).filter(User.is_banned == False).all()
+        count = 0
+        for u in users:
+            try:
+                await bot.send_message(u.user_id, text)
+                count += 1
+                await asyncio.sleep(0.1)
+            except Exception:
+                pass
+        logger.info(f"Broadcast sent to {count} users.")
     finally:
         session.close()
 
@@ -618,41 +628,56 @@ def get_stats():
 def main():
     application = Application.builder().token(TOKEN).build()
 
+    # محادثة إضافة قناة
     add_channel_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^add_channel_start$")],
         states={
-            STATE_ADD_CHANNEL_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)],
+            STATE_ADD_CHANNEL_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_channel_link_step)],
             STATE_ADD_CHANNEL_CATEGORY: [CallbackQueryHandler(button_handler, pattern="^cat_select_")],
             STATE_ADD_CHANNEL_FORMAT: [CallbackQueryHandler(button_handler, pattern="^fmt_select_")],
             STATE_ADD_CHANNEL_TIME: [
                 CallbackQueryHandler(button_handler, pattern="^time_select_"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_channel_time_step)
             ],
         },
         fallbacks=[CallbackQueryHandler(button_handler, pattern="^back_")],
-        name="add_channel_conv"
+        name="add_channel_conv",
+        persistent=False
     )
 
+    # محادثة رفع المحتوى
     upload_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^upload_")],
         states={
-            STATE_UPLOAD_CONTENT: [MessageHandler(filters.Document.ALL, handle_document)]
+            STATE_UPLOAD_CONTENT: [MessageHandler(filters.Document.ALL, handle_upload_step)]
         },
         fallbacks=[CallbackQueryHandler(button_handler, pattern="^back_")],
-        name="upload_conv"
+        name="upload_conv",
+        persistent=False
+    )
+    
+    # محادثة الإذاعة (مضاف للكود لتشغيلها إذا لزم الأمر)
+    broadcast_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(button_handler, pattern="^start_broadcast$")],
+        states={
+            STATE_BROADCAST_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_broadcast_step)]
+        },
+        fallbacks=[CallbackQueryHandler(button_handler, pattern="^back_")],
+        name="broadcast_conv",
+        persistent=False
     )
 
+    # تسجيل الهاندلرز
     application.add_handler(CommandHandler("start", start))
     application.add_handler(add_channel_conv)
     application.add_handler(upload_conv)
+    application.add_handler(broadcast_conv)
     application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     if application.job_queue:
         application.job_queue.run_repeating(post_to_channels_logic, interval=60, first=10)
 
-    logger.info("Bot started...")
+    logger.info("Bot started polling...")
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":

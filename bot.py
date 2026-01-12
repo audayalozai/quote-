@@ -5,8 +5,7 @@ import json
 import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict
-import aiofiles
-import backoff
+from functools import wraps
 
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
@@ -109,10 +108,30 @@ class ActivityLog(Base):
 Base.metadata.create_all(engine)
 
 # --- دوال مساعدة ---
-@backoff.on_exception(backoff.expo, SQLAlchemyError, max_tries=3)
+
+def simple_retry(max_retries=3, delay=1, exceptions=(Exception,)):
+    """ديكور بسيط لإعادة المحاولة"""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return await func(*args, **kwargs)
+                except exceptions as e:
+                    if attempt == max_retries - 1:
+                        raise
+                    await asyncio.sleep(delay * (attempt + 1))
+        return wrapper
+    return decorator
+
 def get_session():
     """الحصول على جلسة قاعدة البيانات مع إعادة المحاولة"""
-    return Session()
+    session = Session()
+    try:
+        return session
+    except SQLAlchemyError:
+        session.close()
+        raise
 
 def db_log_action(user_id, action, details=""):
     """سجل الأنشطة بشكل غير متزامن"""
@@ -372,16 +391,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = session.query(User).filter_by(user_id=user_id).first()
         if not user:
-            user = User(user_id=user_id, username=username, is_banned=False, is_subscribed=is_subscribed)
+            user = User(user_id=user_id, username=username, is_banned=False, is_subscribed=False)
             session.add(user)
             session.commit()
             db_log_action(user_id, "JOIN", f"New user: @{username}")
         elif user.username != username:
             user.username = username
-            user.is_subscribed = is_subscribed
-            session.commit()
-        elif not user.is_subscribed and is_subscribed:
-            user.is_subscribed = True
             session.commit()
         
         user.last_activity = datetime.now()
@@ -393,7 +408,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.close()
 
     kb, title = get_main_menu(role)
-    text = f"أهلاً بك {update.effective_user.first_name}! 👋\n\n🔹 b>{title}</<b> 🔹"
+    text = f"أهلاً بك {update.effective_user.first_name}! 👋\n\n🔹 <b>{title}</b> 🔹"
     await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -425,7 +440,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             target_role = current_role
         
         kb, title = get_main_menu(target_role)
-        await query.edit_message_text(f"🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
+        await query.edit_message_text(f"🔹 b>{title}</<b> 🔹", reply_markup=kb, parse_mode='HTML')
         return
 
     if current_role == "user":
@@ -943,37 +958,6 @@ async def handle_required_channel_step(update: Update, context: ContextTypes.DEF
     finally:
         session.close()
 
-async def handle_edit_channel_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة تعديل القناة الموجودة"""
-    channel_id = context.user_data.get('edit_channel_id')
-    if not channel_id:
-        await update.message.reply_text("❌ حدث خطأ في تعديل القناة.")
-        return ConversationHandler.END
-    
-    session = get_session()
-    try:
-        channel = session.query(Channel).filter_by(id=channel_id).first()
-        if channel:
-            # حفظ الإعدادات الجديدة
-            channel.category = context.user_data.get('add_cat', channel.category)
-            channel.msg_format = context.user_data.get('add_fmt', channel.msg_format)
-            channel.time_type = context.user_data.get('add_time_type', channel.time_type)
-            channel.time_value = context.user_data.get('add_time_value', channel.time_value)
-            
-            session.commit()
-            db_log_action(update.effective_user.id, "EDIT_CHANNEL", f"Modified {channel.title}")
-            
-            role = get_role(update.effective_user.id)
-            await update.message.reply_text("✅ تم تعديل القناة بنجاح!", reply_markup=get_main_menu(role)[0], parse_mode='HTML')
-        else:
-            await update.message.reply_text("❌ القناة غير موجودة.")
-    except Exception as e:
-        logger.error(f"Edit channel error: {e}")
-        await update.message.reply_text("❌ حدث خطأ.")
-    finally:
-        session.close()
-        return ConversationHandler.END
-
 # --- دوال النظام ---
 
 async def resolve_channel(bot, text, forward_chat):
@@ -1062,7 +1046,7 @@ async def save_new_channel(context, user_id):
     finally:
         session.close()
 
-@backoff.on_exception(backoff.expo, Exception, max_tries=3)
+@simple_retry(max_retries=3, delay=1)
 async def post_to_channels_logic(bot, force_run=False):
     """منطق النشر التلقائي"""
     session = get_session()
@@ -1127,7 +1111,7 @@ async def post_to_channels_logic(bot, force_run=False):
     finally:
         session.close()
 
-@backoff.on_exception(backoff.expo, Exception, max_tries=3)
+@simple_retry(max_retries=3, delay=1)
 async def broadcast_worker(bot, text):
     """عامل الإذاعة"""
     session = get_session()

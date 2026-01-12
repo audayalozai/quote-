@@ -30,8 +30,7 @@ DEVELOPER_ID = 778375826
 ADMINS_IDS = [778375826]
 APPLICATION = None
 
-# --- إعداد التسجيل (تم التعديل هنا) ---
-# قمنا بإزالة filename لضمان ظهور الأخطاء في الكونسول مباشرة
+# --- إعداد التسجيل ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -47,7 +46,7 @@ engine = create_engine('sqlite:///bot_data.db', echo=False, connect_args={"check
 Base = declarative_base()
 Session = sessionmaker(bind=engine)
 
-# --- نماذج قاعدة البيانات ---
+# --- نماذج قاعدة البيانات (تم تعديلها لإضافة Foreign Keys) ---
 
 class User(Base):
     __tablename__ = 'users'
@@ -97,7 +96,7 @@ class Content(Base):
     rating = Column(Integer, default=0)
     rating_count = Column(Integer, default=0)
     
-    tags = relationship("Tag", secondary="content_tags")
+    tags = relationship("Tag", secondary="content_tags", backref="contents")
     reviews = relationship("Review", back_populates="content")
 
 class Tag(Base):
@@ -111,8 +110,8 @@ class Tag(Base):
 class ContentTag(Base):
     __tablename__ = 'content_tags'
     id = Column(Integer, primary_key=True)
-    content_id = Column(Integer)
-    tag_id = Column(Integer)
+    content_id = Column(Integer, ForeignKey('content.id'))
+    tag_id = Column(Integer, ForeignKey('tags.id'))
 
 class Filter(Base):
     __tablename__ = 'filters'
@@ -134,7 +133,7 @@ class BotSettings(Base):
 class ActivityLog(Base):
     __tablename__ = 'logs'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer)
+    user_id = Column(Integer, ForeignKey('users.user_id'))
     action = Column(String)
     details = Column(Text)
     timestamp = Column(DateTime, default=datetime.now)
@@ -142,7 +141,7 @@ class ActivityLog(Base):
 class Notification(Base):
     __tablename__ = 'notifications'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, index=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), index=True)
     message = Column(Text)
     scheduled_time = Column(DateTime)
     is_sent = Column(Boolean, default=False)
@@ -155,15 +154,15 @@ class Analytics(Base):
     id = Column(Integer, primary_key=True)
     date = Column(DateTime, default=datetime.now)
     action = Column(String)
-    channel_id = Column(Integer, nullable=True)
-    content_id = Column(Integer, nullable=True)
-    user_id = Column(Integer, nullable=True)
-    meta_data = Column(String, nullable=True)  # تم التصحيح: metadata -> meta_data
+    channel_id = Column(Integer, ForeignKey('channels.channel_id'), nullable=True)
+    content_id = Column(Integer, ForeignKey('content.id'), nullable=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=True)
+    meta_data = Column(String, nullable=True)
 
 class SecurityLog(Base):
     __tablename__ = 'security_logs'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, index=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), index=True)
     action = Column(String)
     ip_address = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
@@ -173,7 +172,7 @@ class SecurityLog(Base):
 class TwoFactorAuth(Base):
     __tablename__ = '2fa'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, unique=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), unique=True)
     secret_key = Column(String)
     is_enabled = Column(Boolean, default=False)
     backup_codes = Column(String)
@@ -183,10 +182,10 @@ class TwoFactorAuth(Base):
 class Review(Base):
     __tablename__ = 'reviews'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer)
+    user_id = Column(Integer, ForeignKey('users.user_id'))
     rating = Column(Integer)
     comment = Column(Text)
-    content_id = Column(Integer)
+    content_id = Column(Integer, ForeignKey('content.id'))
     created_at = Column(DateTime, default=datetime.now)
     content = relationship("Content", back_populates="reviews")
 
@@ -208,7 +207,7 @@ class Translation(Base):
 class PremiumFeature(Base):
     __tablename__ = 'premium_features'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, unique=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), unique=True)
     features = Column(String)
     expires_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.now)
@@ -470,7 +469,6 @@ class PerformanceMonitor:
     def record_cache_miss(self):
         self.stats['cache_misses'] += 1
 
-# متغيرات عامة
 cache_manager = CacheManager()
 task_queue = TaskQueue()
 perf_monitor = PerformanceMonitor()
@@ -826,7 +824,6 @@ async def send_user_content(query, cat_code):
     session = get_session()
     try:
         content = session.query(Content).filter_by(category=cat_code, is_active=True).order_by(func.random()).first()
-        # Close initial session quickly to avoid locks
         session.close()
         
         cat_name = next((n for n, c in CATEGORIES if c == cat_code), cat_code)
@@ -834,7 +831,6 @@ async def send_user_content(query, cat_code):
         
         if content:
             text = await filter_text(content.text)
-            # Reopen session for commit
             session = get_session()
             try:
                 content.view_count += 1
@@ -866,7 +862,6 @@ async def send_user_content(query, cat_code):
 
 @perf_monitor
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة أمر /start"""
     try:
         user_id = update.effective_user.id
         username = update.effective_user.username
@@ -893,14 +888,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             user = session.query(User).filter_by(user_id=user_id).first()
             if not user:
-                user = User(
-                    user_id=user_id, 
-                    username=username, 
-                    is_banned=False, 
-                    is_subscribed=False,
-                    preferred_language='ar',
-                    theme='default'
-                )
+                user = User(user_id=user_id, username=username, is_banned=False, is_subscribed=False, preferred_language='ar', theme='default')
                 session.add(user)
                 session.commit()
                 db_log_action(user_id, "JOIN", f"New user: @{username}")
@@ -910,9 +898,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             user.last_activity = datetime.now()
             session.commit()
-            
             await log_security_action(user_id, "login", update.message)
-            
         except Exception as e:
             logger.error(f"DB Error in start: {e}")
         finally:
@@ -921,7 +907,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb, title = get_main_menu(role)
         text = f"أهلاً بك {update.effective_user.first_name}! 👋\n\n🔹 <b>{title}</b> 🔹"
         await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
-    
     except Exception as e:
         logger.error(f"CRITICAL ERROR in /start handler: {e}")
         await update.message.reply_text("حدث خطأ في النظام. يرجى المحاولة لاحقاً.")
@@ -939,11 +924,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if required_channel and current_role == "user":
         is_subscribed = await check_subscription(user_id, required_channel)
         if not is_subscribed:
-            await query.edit_message_text(
-                "🔒 يرجى الاشتراك في القناة أولاً:\n\n"
-                f"👉 [انضم للقناة](https://t.me/{required_channel.lstrip('@')})",
-                disable_web_page_preview=True
-            )
+            await query.edit_message_text("🔒 يرجى الاشتراك في القناة أولاً:\n\n" f"👉 [انضم للقناة](https://t.me/{required_channel.lstrip('@')})", disable_web_page_preview=True)
             return
 
     if data.startswith("back_"):
@@ -965,135 +946,61 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "premium_menu":
         await query.edit_message_text("💎 <b>الميزات المميزة:</b>\n\nاشترك الآن لتفعيل الميزات الحصرية!", reply_markup=get_premium_keyboard(), parse_mode='HTML')
         return
-    
-    if data == "premium_activate":
-        await query.edit_message_text(
-            "💎 <b>تفعيل الاشتراك المميز:</b>\n\n"
-            "🎯 الميزات المتاحة:\n"
-            "• تحليلات متقدمة\n"
-            "• تصفية نتائج البحث\n"
-            "• تخزين مؤقت محسّن\n"
-            "• دعم فني مخصص\n\n"
-            "📱 قريباً: دعم الدفع المباشر!",
-            reply_markup=get_premium_keyboard(),
-            parse_mode='HTML'
-        )
-        return
-    
-    if data == "premium_features":
-        await query.edit_message_text(
-            "💎 <b>الميزات المميزة:</b>\n\n"
-            "🎯 <b>التحليلات المتقدمة:</b>\n"
-            "• تتبع نشاطك\n"
-            "• تقارير شخصية\n"
-            "• إحصائيات تفصيلية\n\n"
-            "🔍 <b>البحث المتقدم:</b>\n"
-            "• تصفية حسب التاريخ\n"
-            "• البحث في التصنيفات\n"
-            "• نتائج دقيقة\n\n"
-            "⚡ <b>الأداء المحسّن:</b>\n"
-            "• سرعة استجابة أعلى\n"
-            "• تخزين مؤقت أفضل\n"
-            "• أولوية المعالجة",
-            reply_markup=get_premium_keyboard(),
-            parse_mode='HTML'
-        )
-        return
-    
-    if data == "search_menu":
-        await query.edit_message_text("🔍 <b>البحث في المحتوى:</b>\n\nأدخل كلمة مفتاحية للبحث:", reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")]
-        ]))
+    elif data == "search_menu":
+        await query.edit_message_text("🔍 <b>البحث في المحتوى:</b>\n\nأدخل كلمة مفتاحية للبحث:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")]]))
         context.user_data['search_mode'] = True
         return
-    
-    if data == "tags_menu":
+    elif data == "tags_menu":
         await query.edit_message_text("🏷️ <b>التصنيفات:</b>\n\nاختر قسمًا لعرض تصنيفاته:", reply_markup=get_categories_keyboard("tag_select"))
         return
-    
-    if data == "security_menu":
+    elif data == "security_menu":
         await query.edit_message_text("🔒 <b>قائمة الأمان:</b>\n\nاختر إجراء:", reply_markup=get_security_keyboard(), parse_mode='HTML')
         return
-    
-    if data == "backup_menu":
+    elif data == "backup_menu":
         await query.edit_message_text("💾 <b>النسخ الاحتياطي:</b>\n\nاختر إجراء:", reply_markup=get_backup_keyboard(), parse_mode='HTML')
         return
-    
-    if data == "notifications_menu":
+    elif data == "notifications_menu":
         await show_notifications_menu(query, current_role)
         return
-    
-    if data == "my_analytics":
-        await show_user_analytics(query, user_id)
-        return
-    
-    if data == "my_reviews":
-        await show_user_reviews(query, user_id)
-        return
-    
-    if data == "my_notifications":
-        await show_user_notifications(query, user_id)
+    elif data in ["my_analytics", "my_reviews", "my_notifications"]:
+        if data == "my_analytics": await show_user_analytics(query, user_id)
+        elif data == "my_reviews": await show_user_reviews(query, user_id)
+        elif data == "my_notifications": await show_user_notifications(query, user_id)
         return
 
     if current_role in ["admin", "dev"]:
         if data == "stats":
-            stats_text = get_stats()
-            await query.edit_message_text(stats_text, reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔄 تحديث", callback_data="stats")],
-                [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")]
-            ]), parse_mode='HTML')
-        
+            await query.edit_message_text(get_stats(), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 تحديث", callback_data="stats")], [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")]]), parse_mode='HTML')
         elif data == "manage_channels":
             session = get_session()
             try:
                 channels = session.query(Channel).all()
                 if not channels:
-                    await query.edit_message_text("لا توجد قنوات مضافة حالياً.", reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")]
-                    ]))
+                    await query.edit_message_text("لا توجد قنوات مضافة حالياً.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")]]))
                     return
-                
                 text = "📢 <b>القنوات المضافة:</b>\n\n"
                 buttons = []
                 for ch in channels:
                     status = "✅" if ch.is_active else "❌"
                     text += f"{status} {ch.title} ({ch.channel_id})\n"
                     buttons.append([InlineKeyboardButton(f"⚙️ {ch.title}", callback_data=f"edit_channel_{ch.id}")])
-                
                 buttons.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")])
                 await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode='HTML')
             finally:
                 session.close()
-
-        elif data == "upload_content_menu":
-            await query.edit_message_text("اختر القسم لإضافة المحتوى:", reply_markup=get_categories_keyboard("upload"))
-
-        elif data == "manage_content":
-             await query.edit_message_text("إدارة المحتوى:", reply_markup=get_categories_keyboard("manage"))
-        
-        elif data == "add_channel_start":
-            await query.edit_message_text("🔗 أرسل رابط القناة الآن (مع @):", reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")]
-            ]))
-        
-        elif data == "bot_settings":
-            await query.edit_message_text("⚙️ <b>إعدادات البوت</b>:\n\nقريباً...", reply_markup=InlineKeyboardMarkup([
-                 [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")]
-            ]), parse_mode='HTML')
+        elif data in ["upload_content_menu", "manage_content"]:
+            await query.edit_message_text("اختر القسم:", reply_markup=get_categories_keyboard("upload" if "upload" in data else "manage"))
+        elif data in ["add_channel_start", "bot_settings"]:
+            msg = "🔗 أرسل رابط القناة الآن (مع @):" if "add" in data else "⚙️ <b>إعدادات البوت</b>:\n\nقريباً..."
+            await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")]]), parse_mode='HTML')
 
     if current_role == "user":
         if data == "user_random":
-            cat_code = random.choice([c[1] for c in CATEGORIES])
-            await send_user_content(query, cat_code)
+            await send_user_content(query, random.choice([c[1] for c in CATEGORIES]))
         elif data.startswith("user_cat_"):
-            cat_code = data.split("_")[-1]
-            await send_user_content(query, cat_code)
-        elif data == "user_categories":
-            await query.edit_message_text("اختر القسم:", reply_markup=get_categories_keyboard("user_cat"))
-        elif data == "user_settings":
-            await query.edit_message_text("⚙️ <b>الإعدادات</b>:\n\nقريباً...", reply_markup=InlineKeyboardMarkup([
-                 [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")]
-            ]), parse_mode='HTML')
+            await send_user_content(query, data.split("_")[-1])
+        elif data in ["user_categories", "user_settings"]:
+            await query.edit_message_text("اختر القسم:" if "cat" in data else "⚙️ <b>الإعدادات</b>:\n\nقريباً...", reply_markup=get_categories_keyboard("user_cat") if "cat" in data else InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")]]), parse_mode='HTML')
         return
 
 async def show_notifications_menu(query, role):
@@ -1101,22 +1008,12 @@ async def show_notifications_menu(query, role):
     try:
         notifications = session.query(Notification).filter_by(is_sent=False).order_by(Notification.scheduled_time).limit(10).all()
         if not notifications:
-            await query.edit_message_text("🔔 لا توجد إشعارات مجدولة حالياً.", reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("➕ إضافة إشعار", callback_data="add_notification")],
-                [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")]
-            ]))
+            await query.edit_message_text("🔔 لا توجد إشعارات مجدولة حالياً.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("➕ إضافة إشعار", callback_data="add_notification")], [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")]]))
             return
-        
         text = "🔔 <b>الإشعارات المجدولة:</b>\n\n"
         for i, notification in enumerate(notifications[:5], 1):
-            scheduled_time = notification.scheduled_time.strftime("%Y-%m-%d %H:%M")
-            text += f"{i}. {notification.message[:50]}... ({scheduled_time})\n"
-        
-        buttons = [
-            [InlineKeyboardButton("➕ إضافة إشعار", callback_data="add_notification")],
-            [InlineKeyboardButton("🗑️ مسح الإشعارات", callback_data="clear_notifications")],
-            [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")]
-        ]
+            text += f"{i}. {notification.message[:50]}... ({notification.scheduled_time.strftime('%Y-%m-%d %H:%M')})\n"
+        buttons = [[InlineKeyboardButton("➕ إضافة إشعار", callback_data="add_notification")], [InlineKeyboardButton("🗑️ مسح الإشعارات", callback_data="clear_notifications")], [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")]]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode='HTML')
     finally:
         session.close()
@@ -1128,21 +1025,10 @@ async def show_user_analytics(query, user_id):
         user_reviews = session.query(Review).filter_by(user_id=user_id).count()
         user_views = session.query(Content).filter_by(added_by=user_id).with_entities(func.sum(Content.view_count)).scalar() or 0
         best_content = session.query(Content).filter_by(added_by=user_id).order_by(Content.view_count.desc()).first()
-        
-        text = f"📊 <b>تحليلاتي الشخصية:</b>\n\n"
-        text += f"📝 محتوى أضفته: {user_content} نص\n"
-        text += f"⭐ مراجعاتي: {user_reviews}\n"
-        text += f"👁️ إجمالي المشاهدات: {user_views}\n\n"
-        
+        text = f"📊 <b>تحليلاتي الشخصية:</b>\n\n📝 محتوى أضفته: {user_content} نص\n⭐ مراجعاتي: {user_reviews}\n👁️ إجمالي المشاهدات: {user_views}\n\n"
         if best_content:
-            text += f"🏆 أفضل محتوى:\n"
-            text += f"النص: {best_content.text[:50]}...\n"
-            text += f"المشاهدات: {best_content.view_count}\n"
-            text += f"التقييم: {best_content.rating}/5 ({best_content.rating_count} تقييم)\n"
-        
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 رجوع", callback_data="back_premium")]
-        ]), parse_mode='HTML')
+            text += f"🏆 أفضل محتوى:\nالنص: {best_content.text[:50]}...\nالمشاهدات: {best_content.view_count}\nالتقييم: {best_content.rating}/5 ({best_content.rating_count} تقييم)\n"
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_premium")]]), parse_mode='HTML')
     finally:
         session.close()
 
@@ -1151,23 +1037,14 @@ async def show_user_reviews(query, user_id):
     try:
         reviews = session.query(Review).filter_by(user_id=user_id).order_by(Review.created_at.desc()).limit(5).all()
         if not reviews:
-            await query.edit_message_text("⭐ لم تقم بكتابة أي مراجعات بعد.", reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 رجوع", callback_data="back_premium")]
-            ]))
+            await query.edit_message_text("⭐ لم تقم بكتابة أي مراجعات بعد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_premium")]]))
             return
-        
         text = f"⭐ <b>مراجعاتي:</b>\n\n"
         for review in reviews:
             content = session.query(Content).filter_by(id=review.content_id).first()
             if content:
-                text += f"⭐ {review.rating}/5\n"
-                text += f"النص: {content.text[:50]}...\n"
-                text += f"المراجعة: {review.comment}\n"
-                text += f"التاريخ: {review.created_at.strftime('%Y-%m-%d')}\n\n"
-        
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 رجوع", callback_data="back_premium")]
-        ]), parse_mode='HTML')
+                text += f"⭐ {review.rating}/5\nالنص: {content.text[:50]}...\nالمراجعة: {review.comment}\nالتاريخ: {review.created_at.strftime('%Y-%m-%d')}\n\n"
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_premium")]]), parse_mode='HTML')
     finally:
         session.close()
 
@@ -1176,44 +1053,25 @@ async def show_user_notifications(query, user_id):
     try:
         notifications = session.query(Notification).filter_by(user_id=user_id, is_sent=False).order_by(Notification.scheduled_time).limit(5).all()
         if not notifications:
-            await query.edit_message_text("🔔 لا توجد إشعارات شخصية مجدولة.", reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 رجوع", callback_data="back_premium")]
-            ]))
+            await query.edit_message_text("🔔 لا توجد إشعارات شخصية مجدولة.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_premium")]]))
             return
-        
         text = f"🔔 <b>إشعاراتي:</b>\n\n"
         for i, notification in enumerate(notifications, 1):
-            scheduled_time = notification.scheduled_time.strftime("%Y-%m-%d %H:%M")
-            text += f"{i}. {notification.message[:50]}... ({scheduled_time})\n"
-        
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 رجوع", callback_data="back_premium")]
-        ]), parse_mode='HTML')
+            text += f"{i}. {notification.message[:50]}... ({notification.scheduled_time.strftime('%Y-%m-%d %H:%M')})\n"
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_premium")]]), parse_mode='HTML')
     finally:
         session.close()
 
 async def log_security_action(user_id, action, update=None):
     session = get_session()
     try:
-        ip_address = None
-        user_agent = None
-        if update and update.message:
-            pass
-        
-        security_log = SecurityLog(
-            user_id=user_id,
-            action=action,
-            ip_address=ip_address,
-            user_agent=user_agent
-        )
+        security_log = SecurityLog(user_id=user_id, action=action, ip_address=None, user_agent=None)
         session.add(security_log)
         session.commit()
     except Exception as e:
         logger.error(f"Security log error: {e}")
     finally:
         session.close()
-
-# --- دوال النظام ---
 
 async def process_task_queue():
     while True:
@@ -1230,7 +1088,6 @@ async def periodic_stats():
         await schedule_content_posting()
         await asyncio.sleep(60 * 60)
 
-# --- التشغيل ---
 def main():
     global APPLICATION
     APPLICATION = Application.builder().token(TOKEN).build()

@@ -367,24 +367,63 @@ def get_channel_info_keyboard(channel_id):
     finally:
         session.close()
 
-# --- دالة مساعدة مفقودة في الأصل ---
-async def return_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, query=None):
-    """إعادة المستخدم للقائمة الرئيسية"""
-    user_id = update.effective_user.id
-    role = get_role(user_id)
+# الدوال الجديدة للتعامل مع أزرار الرجوع المتقدمة
+async def handle_advanced_back_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة أزرار الرجوع المتقدمة"""
+    query = update.callback_query
+    await query.answer()
     
-    kb, title = get_main_menu(role)
-    text = f"🔹 <b>{title}</b> 🔹"
-    
-    if query:
-        try:
-            await query.edit_message_text(text, reply_markup=kb, parse_mode='HTML')
-        except:
-            pass # إذا كانت الرسالة غير قابلة للتعديل
-    elif update.message:
-        await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
+    user_id = query.from_user.id
+    current_role = get_role(user_id)
+    data = query.data
 
-# --- معالجة الأوامر ---
+    if data == "back_from_content":
+        # العودة لصفحة إدارة المحتوى
+        await show_content_stats(query, current_role)
+    
+    elif data == "back_from_upload":
+        # العودة لصفحة رفع المحتوى
+        buttons = [[InlineKeyboardButton(name, callback_data=f"upload_{code}")] for name, code in CATEGORIES]
+        buttons.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{current_role}")])
+        await query.edit_message_text("اختر القسم لرفع ملف نصي (.txt):", reply_markup=InlineKeyboardMarkup(buttons))
+    
+    elif data == "back_from_user_content":
+        # العودة لقائمة الأقسام للمستخدمين
+        await query.edit_message_text("اختر القسم:", reply_markup=get_categories_keyboard("user_cat"))
+    
+    elif data == "back_from_random":
+        # العودة للقائمة الرئيسية للمستخدمين
+        kb, title = get_main_menu("user")
+        await query.edit_message_text(f"🔹 b>{title}</<b> 🔹", reply_markup=kb, parse_mode='HTML')
+
+# الدوال الجديدة للكيبوردها المحسنة
+def get_upload_keyboard(category):
+    """الحصول على كيبورد رفع المحتوى مع أزرار رجوع مناسبة"""
+    buttons = [
+        [InlineKeyboardButton("📁 رفع ملف (.txt)", callback_data=f"upload_file_{category}")],
+        [InlineKeyboardButton("✏️ كتابة نص يدوي", callback_data=f"upload_manual_{category}")],
+        [InlineKeyboardButton("🔙 رجوع للقسم", callback_data="back_from_content")],
+        [InlineKeyboardButton("🏠 للقائمة الرئيسية", callback_data=f"back_{get_role(update.effective_user.id)}")]
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+def get_content_management_keyboard(category):
+    """الحصول على كيبورد إدارة المحتوى مع زر رفع فوق زر الحذف"""
+    session = get_session()
+    try:
+        content_count = session.query(Content).filter_by(category=category, is_active=True).count()
+        cat_name = next((n for n, c in CATEGORIES if c == category), category)
+        
+        buttons = [
+            [InlineKeyboardButton("📤 رفع محتوى جديد", callback_data=f"upload_{category}")],
+            [InlineKeyboardButton(f"🗑️ حذف جميع المحتوى ({content_count})", callback_data=f"clear_cat_{category}")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="back_admin")]
+        ]
+        return cat_name, InlineKeyboardMarkup(buttons)
+    finally:
+        session.close()
+
+# --- معالج الأوامر ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة أمر /start"""
@@ -431,7 +470,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.close()
 
     kb, title = get_main_menu(role)
-    text = f"أهلاً بك {update.effective_user.first_name}! 👋\n\n🔹 <b>{title}</b> 🔹"
+    text = f"أهلاً بك {update.effective_user.first_name}! 👋\n\n🔹 b>{title}</<b> 🔹"
     await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -455,15 +494,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+    # معالجة أزرار الرجوع بشكل محسّن
     if data.startswith("back_"):
         target_role = data.split("_")[1]
+        
+        # الحفاظ على الدور الحالي إذا كان المستخدم مطورًا أو مشرفًا
         if target_role == "admin" and current_role == "dev":
             target_role = "dev"
         elif target_role == "user" and current_role in ["admin", "dev"]:
             target_role = current_role
         
+        # العودة للقائمة الرئيسية
         kb, title = get_main_menu(target_role)
-        await query.edit_message_text(f"🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
+        await query.edit_message_text(f"🔹 b>{title}</<b> 🔹", reply_markup=kb, parse_mode='HTML')
+        return
+
+    # معالجة أزرار الرجوع المتقدمة
+    if data in ["back_from_content", "back_from_upload", "back_from_user_content", "back_from_random"]:
+        await handle_advanced_back_button(update, context)
         return
 
     if current_role == "user":
@@ -508,7 +556,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("cat_content_"):
         cat_code = data.split("_")[-1]
         context.user_data['manage_cat'] = cat_code
-        await show_category_content(query, cat_code, current_role)
+        cat_name, buttons = get_content_management_keyboard(cat_code)
+        await query.edit_message_text(f"قسم: <b>{cat_name}</b>\nاختر إجراء:", reply_markup=buttons, parse_mode='HTML')
 
     if data == "clear_cat_confirm":
         cat = context.user_data.get('manage_cat')
@@ -522,7 +571,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("upload_"):
         cat = data.split("_")[1]
         context.user_data['upload_category'] = cat
-        await query.edit_message_text(f"أرسل ملف .txt الآن.", reply_markup=get_back_keyboard(current_role))
+        cat_name, _ = get_content_management_keyboard(cat)
+        await query.edit_message_text(f"رفع محتوي لقسم: <b>{cat_name}</b>\n\nاختر طريقة الرفع:", reply_markup=get_upload_keyboard(cat), parse_mode='HTML')
         return STATE_UPLOAD_CONTENT
 
     # --- الترشيحات ---
@@ -589,7 +639,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- دوال المساعدة ---
 
 async def send_user_content(query, cat_code):
-    """إرسال محتوى عشوائي للمستخدم"""
+    """إرسال محتوى عشوائي للمستخدم مع أزرار رجوع محسنة"""
     session = get_session()
     try:
         content = session.query(Content).filter_by(category=cat_code, is_active=True).order_by(func.random()).first()
@@ -607,7 +657,8 @@ async def send_user_content(query, cat_code):
         
         buttons = [
             [InlineKeyboardButton("🔄 غيرها", callback_data=f"user_cat_{cat_code}")],
-            [InlineKeyboardButton("🔙 رجوع", callback_data="user_categories")]
+            [InlineKeyboardButton("📂 جميع الأقسام", callback_data="back_from_user_content")],
+            [InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="back_from_random")]
         ]
         try:
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode='HTML')
@@ -662,15 +713,21 @@ async def delete_channel(ch_id, query, role):
         session.close()
 
 async def show_content_stats(query, role):
-    """إحصائيات المحتوى"""
+    """عرض إحصائيات المحتوى مع أزرار رجوع مناسبة"""
     session = get_session()
     try:
         buttons = []
         for name, code in CATEGORIES:
             count = session.query(Content).filter_by(category=code, is_active=True).count()
+            cat_name, _ = get_content_management_keyboard(code)
             buttons.append([InlineKeyboardButton(f"{name} ({count})", callback_data=f"cat_content_{code}")])
+        
         buttons.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")])
-        await query.edit_message_text("إحصائيات المحتوى:", reply_markup=InlineKeyboardMarkup(buttons))
+        
+        await query.edit_message_text(
+            "📂 إدارة المحتوى:\n\nاختر قسمًا للإدارة:",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
     finally:
         session.close()
 
@@ -775,7 +832,7 @@ async def handle_channel_link_step(update: Update, context: ContextTypes.DEFAULT
                     f"⏰ التوقيت: {existing_channel.time_type}\n\n"
                     f"هل تريد تعديلها؟ اضغط زر التعديل أدناه.",
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("✅ نعم، أريد تعديلها", callback_data=f"edit_channel_{info['id']}")], # هذا الزر سيقوم بإنهاء المحادثة وتوجيهك للمعلومات، يحتاج منطق إضافي ليكون صحيحاً داخل المحادثة
+                        [InlineKeyboardButton("✅ نعم، أريد تعديلها", callback_data=f"edit_channel_{info['id']}")],
                         [InlineKeyboardButton("🔙 إلغاء", callback_data="back_admin")]
                     ]),
                     parse_mode='HTML'

@@ -165,7 +165,6 @@ class Analytics(Base):
     channel_id = Column(Integer, nullable=True)
     content_id = Column(Integer, nullable=True)
     user_id = Column(Integer, nullable=True)
-    # تم تغيير اسم العمود من metadata إلى meta_data لتجنب التعارض مع SQLAlchemy
     meta_data = Column(String, nullable=True)  # JSON string for additional data
 
 class SecurityLog(Base):
@@ -450,9 +449,14 @@ class TaskQueue:
     
     async def process_tasks(self):
         """معالجة المهام المجدولة"""
+        while True:
+            await self.process_tasks_logic()
+            await asyncio.sleep(1)
+
+    async def process_tasks_logic(self):
+        """منطق معالجة المهام (مفصول لتحسين الأداء)"""
         while self.tasks:
             scheduled_time, priority, task_func = self.tasks[0]
-            
             if datetime.now() >= scheduled_time:
                 heapq.heappop(self.tasks)
                 try:
@@ -460,7 +464,7 @@ class TaskQueue:
                 except Exception as e:
                     logger.error(f"Task execution failed: {e}")
             else:
-                await asyncio.sleep(1)
+                break
 
 # --- مراقب الأداء (تم تعديله ليكون Decorator) ---
 class PerformanceMonitor:
@@ -1462,7 +1466,7 @@ async def log_security_action(user_id, action, update=None):
 async def process_task_queue():
     """معالجة قائمة المهام"""
     while True:
-        await task_queue.process_tasks()
+        await task_queue.process_tasks_logic()
         await asyncio.sleep(1)
 
 async def periodic_backup():
@@ -1489,10 +1493,14 @@ def main():
     APPLICATION.add_handler(CommandHandler("start", start))
     APPLICATION.add_handler(CallbackQueryHandler(button_handler))
     
-    # إضافة المهام الدورية
-    APPLICATION.add_task(process_task_queue)
-    APPLICATION.add_task(periodic_backup)
-    APPLICATION.add_task(periodic_stats)
+    # استخدام asyncio.create_task لتشغيل المهام في الخلفية بدلاً من add_task
+    async def post_init(app: Application):
+        logger.info("Starting background tasks...")
+        asyncio.create_task(process_task_queue())
+        asyncio.create_task(periodic_backup())
+        asyncio.create_task(periodic_stats())
+
+    APPLICATION.post_init = post_init
     
     # جدولة الإشعارات
     if APPLICATION.job_queue:

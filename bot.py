@@ -18,9 +18,8 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
     ContextTypes,
-    ConversationHandler,
-    PersistenceAdapter,
-    PicklePersistence
+    ConversationHandler
+    # تمت إزالة PersistenceAdapter و PicklePersistence من هنا لإصلاح الخطأ
 )
 
 # --- إعدادات البوت (يُرجى تعديلها) ---
@@ -151,6 +150,7 @@ STATE_UPLOAD_CONTENT = 8
 def get_main_menu(role):
     if role == "dev":
         buttons = [
+            [InlineKeyboardButton("📢 إضافة قناة", callback_data="add_channel_start")],
             [InlineKeyboardButton("📢 إدارة القنوات", callback_data="manage_channels")],
             [InlineKeyboardButton("📝 إدارة المحتوى", callback_data="manage_content")],
             [InlineKeyboardButton("👥 إدارة المستخدمين", callback_data="manage_users")],
@@ -170,6 +170,7 @@ def get_main_menu(role):
         ]
     else: # User
         buttons = [
+            [InlineKeyboardButton("📢 إضافة قناة", callback_data="add_channel_start")],
             [InlineKeyboardButton("📂 الأقسام", callback_data="user_categories")],
             [InlineKeyboardButton("🔖 اقتباس عشوائي", callback_data="user_random")],
             [InlineKeyboardButton("ℹ️ عن البوت", callback_data="user_about")]
@@ -320,7 +321,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "upload_content_menu":
         buttons = [[InlineKeyboardButton(name, callback_data=f"upload_{code}")] for name, code in CATEGORIES]
-        buttons.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"back_admin")])
+        buttons.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_admin")])
         await query.edit_message_text("اختر القسم لرفع ملف نصي (.txt):", reply_markup=InlineKeyboardMarkup(buttons))
 
     if data.startswith("upload_"):
@@ -743,9 +744,7 @@ async def broadcast_worker(bot, text):
 # --- إعداد التطبيق ---
 
 def main():
-    # ملف للحفاظ على حالة المحادثات (اختياري، مفيد عند إعادة تشغيل البوت)
-    # persistence = PicklePersistence(filepath='bot_data.pkl')
-    
+    # لم نعد نستخدم PicklePersistence لأنها تسبب مشاكل التوافق
     application = Application.builder().token(TOKEN).build()
 
     # تحديد الأوامر

@@ -21,10 +21,10 @@ from telegram.ext import (
     ConversationHandler
 )
 
-# --- إعدادات البوت (هام: عدل هذه القيم) ---
+# --- إعدادات البوت (هام جداً: عدل هذه القيم) ---
 TOKEN = "6741306329:AAG-or3-0oGmr3QJWN-kCC7tYxP7FTLlYgo"  # ضع التوكن هنا
-DEVELOPER_ID = 778375826       # ضع آيديك الرقمي هنا (بدون @)
-ADMINS_IDS = [DEVELOPER_ID]    # قائمة المشرفين
+DEVELOPER_ID = 778375826       # ضع آيديك الرقمي هنا
+ADMINS_IDS = [778375826]
 
 # --- إعداد التسجيل ---
 logging.basicConfig(
@@ -110,18 +110,6 @@ def get_role(user_id):
         session.close()
     return "user"
 
-def get_stats():
-    session = Session()
-    try:
-        users_count = session.query(User).count()
-        admins_count = session.query(User).filter_by(is_admin=True).count()
-        channels_count = session.query(Channel).count()
-        active_channels = session.query(Channel).filter_by(is_active=True).count()
-        content_count = session.query(Content).count()
-        return f"📊 <b>إحصائيات البوت:</b>\n\n👥 المستخدمين: {users_count}\n🛡️ المشرفين: {admins_count}\n📢 القنوات: {channels_count} (نشط: {active_channels})\n📝 المحتوى: {content_count} نص."
-    finally:
-        session.close()
-
 # --- الثوابت ---
 CATEGORIES = [
     ("❤️ حب", "حب"),
@@ -132,26 +120,23 @@ CATEGORIES = [
     ("😂 مضحك", "مضحك")
 ]
 
-# حالات المحادثة
 STATE_ADD_CHANNEL_LINK = 1
 STATE_ADD_CHANNEL_CATEGORY = 2
 STATE_ADD_CHANNEL_FORMAT = 3
 STATE_ADD_CHANNEL_TIME = 4
 STATE_BROADCAST_MSG = 5
 STATE_BAN_USER_ID = 6
-STATE_ADD_ADMIN = 7
-STATE_UPLOAD_CONTENT = 8
+STATE_UPLOAD_CONTENT = 7
 
-# --- توليد الكيبوردات ---
+# --- الكيبوردات ---
 def get_main_menu(role):
     if role == "dev":
         buttons = [
+            [InlineKeyboardButton("📢 إضافة قناة", callback_data="add_channel_start")],
             [InlineKeyboardButton("📢 إدارة القنوات", callback_data="manage_channels")],
-            [InlineKeyboardButton("📝 رفع محتوى جديد", callback_data="upload_content_menu")], # تمت الإضافة هنا
+            [InlineKeyboardButton("📝 رفع محتوى", callback_data="upload_content_menu")],
             [InlineKeyboardButton("📂 إدارة المحتوى", callback_data="manage_content")],
-            [InlineKeyboardButton("👥 إدارة المستخدمين", callback_data="manage_users")],
             [InlineKeyboardButton("📊 الإحصائيات", callback_data="stats")],
-            [InlineKeyboardButton("⚙️ إعدادات النشر", callback_data="posting_settings")]
         ]
     elif role == "admin":
         buttons = [
@@ -161,14 +146,12 @@ def get_main_menu(role):
             [InlineKeyboardButton("📊 الإحصائيات", callback_data="stats")],
             [InlineKeyboardButton("🚀 نشر الآن", callback_data="force_post_now")]
         ]
-    else: # User
+    else:
         buttons = [
             [InlineKeyboardButton("📂 الأقسام", callback_data="user_categories")],
             [InlineKeyboardButton("🔖 اقتباس عشوائي", callback_data="user_random")],
-            [InlineKeyboardButton("📝 مساهمة (رفع محتوى)", callback_data="upload_content_menu")], # زر للمستخدمين للمساهمة
-            [InlineKeyboardButton("ℹ️ عن البوت", callback_data="user_about")]
+            [InlineKeyboardButton("📝 مساهمة (رفع محتوى)", callback_data="upload_content_menu")],
         ]
-    
     title = "لوحة المطور 🔧" if role == "dev" else "لوحة المشرف 👨‍💼" if role == "admin" else "القائمة الرئيسية 🏠"
     return InlineKeyboardMarkup(buttons), title
 
@@ -195,7 +178,7 @@ def get_time_keyboard(prefix):
         [InlineKeyboardButton("🔙 رجوع", callback_data="back_admin")]
     ])
 
-# --- المعالجات (Handlers) ---
+# --- معالجة الأوامر ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -222,10 +205,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     kb, title = get_main_menu(role)
     text = f"أهلاً بك {update.effective_user.first_name}! 👋\n\n🔹 <b>{title}</b> 🔹"
-    try:
-        await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
-    except Exception as e:
-        logger.error(f"Error sending start menu: {e}")
+    await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -235,10 +215,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = get_role(user_id)
     data = query.data
 
-    if role == "banned":
-        await query.edit_message_text("⛔️ تم حظرك من استخدام البوت.")
-        return
-
     if data.startswith("back_"):
         target_role = data.split("_")[1]
         if target_role == "admin" and role == "dev": target_role = "dev"
@@ -246,7 +222,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
         return
 
-    # --- أوامر المستخدم ---
     if role == "user":
         if data == "user_random":
             cat_code = random.choice([c[1] for c in CATEGORIES])
@@ -256,15 +231,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_user_content(query, cat_code)
         elif data == "user_categories":
             await query.edit_message_text("اختر القسم:", reply_markup=get_categories_keyboard("user_cat"))
-        elif data == "user_about":
-             await query.edit_message_text("بوت نشر اقتباسات ذكي في القنوات.\nللإستفسار تواصل مع المطور.", reply_markup=get_main_menu(role)[0])
         return
 
-    # --- أوامر المشرف والمطور ---
-
+    # --- القنوات ---
     if data == "add_channel_start":
         context.user_data.clear()
-        await query.edit_message_text("أرسل رابط القناة أو تحويل رسالة:", reply_markup=get_back_keyboard(role))
+        # تعيين الحالة يدوياً
+        context.user_data['state'] = STATE_ADD_CHANNEL_LINK
+        await query.edit_message_text("⚙️ <b>خطوة 1/4:</b>\n\nيرجى إرسال رابط القناة (معرف مثل @channel) أو تحويل رسالة منها.", reply_markup=get_back_keyboard(role), parse_mode='HTML')
         return STATE_ADD_CHANNEL_LINK
 
     if data == "manage_channels":
@@ -278,7 +252,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ch_id = int(data.split("_")[2])
         delete_channel(ch_id, query, role)
 
-    # إدارة المحتوى (الإحصائيات والحذف)
+    # --- المحتوى ---
     if data == "manage_content":
         buttons = []
         for name, code in CATEGORIES:
@@ -305,13 +279,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             deleted = session.query(Content).filter_by(category=cat).delete()
             session.commit()
-            await query.edit_message_text(f"✅ تم حذف {deleted} سطر من القسم.", reply_markup=get_back_keyboard(role))
+            await query.edit_message_text(f"✅ تم حذف {deleted} سطر.", reply_markup=get_back_keyboard(role))
         except Exception as e:
-            await query.edit_message_text(f"❌ حدث خطأ.", reply_markup=get_back_keyboard(role))
+            await query.edit_message_text("❌ حدث خطأ.", reply_markup=get_back_keyboard(role))
         finally:
             session.close()
 
-    # رفع المحتوى (للأدمن والمطور والمستخدم)
     if data == "upload_content_menu":
         buttons = [[InlineKeyboardButton(name, callback_data=f"upload_{code}")] for name, code in CATEGORIES]
         buttons.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")])
@@ -320,96 +293,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("upload_"):
         cat = data.split("_")[1]
         context.user_data['upload_category'] = cat
-        await query.edit_message_text(f"أرسل ملف .txt يحتوي على النصوص.\nسيتم إضافتها لقسم: {cat}", reply_markup=get_back_keyboard(role))
+        context.user_data['state'] = STATE_UPLOAD_CONTENT
+        await query.edit_message_text(f"أرسل ملف .txt الآن.", reply_markup=get_back_keyboard(role))
         return STATE_UPLOAD_CONTENT
 
-    # إدارة المستخدمين
-    if data == "manage_users" and role == "dev":
-        buttons = [
-            [InlineKeyboardButton("🛡️ قائمة المشرفين", callback_data="list_admins")],
-            [InlineKeyboardButton("🚫 حظر مستخدم", callback_data="ban_user_start")],
-            [InlineKeyboardButton("🔙 رجوع", callback_data="back_dev")]
-        ]
-        await query.edit_message_text("إدارة المستخدمين:", reply_markup=InlineKeyboardMarkup(buttons))
-    
-    if data == "list_admins":
-        session = Session()
-        admins = session.query(User).filter_by(is_admin=True).all()
-        txt = "🛡️ <b>المشرفين:</b>\n\n"
-        for admin in admins:
-            u = f"@{admin.username}" if admin.username else admin.user_id
-            txt += f"{u}\n"
-        session.close()
-        await query.message.reply_text(txt, parse_mode='HTML')
-        kb, _ = get_main_menu("dev")
-        await query.edit_message_text("القائمة الرئيسية 🔧", reply_markup=kb)
-
-    if data == "ban_user_start":
-        await query.edit_message_text("أرسل آيدي المستخدم لحظره:", reply_markup=get_back_keyboard(role))
-        return STATE_BAN_USER_ID
-
-    # الإذاعة والإعدادات
-    if data == "start_broadcast":
-        context.user_data.clear()
-        await query.edit_message_text("أرسل نص رسالة الإذاعة الآن:", reply_markup=get_back_keyboard(role))
-        return STATE_BROADCAST_MSG
-
-    if data == "posting_settings":
-        session = Session()
-        setting = session.query(BotSettings).filter_by(key='global_status').first()
-        status = setting.value if setting else 'on'
-        status_txt = "🟢 مفعل" if status == 'on' else "🔴 متوقف"
-        session.close()
-
-        buttons = [
-            [InlineKeyboardButton(f"تغيير الحالة: {status_txt}", callback_data="toggle_global_post")],
-            [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")]
-        ]
-        await query.edit_message_text(f"إعدادات النشر العام:\nالحالة الحالية: {status_txt}", reply_markup=InlineKeyboardMarkup(buttons))
-
-    if data == "toggle_global_post":
-        session = Session()
-        setting = session.query(BotSettings).filter_by(key='global_status').first()
-        new_val = 'off' if setting and setting.value == 'on' else 'on'
-        if setting: setting.value = new_val
-        else: session.add(BotSettings(key='global_status', value=new_val))
-        session.commit()
-        session.close()
-        await button_handler(update, context)
-        return
-
-    if data == "force_post_now":
-        await query.edit_message_text("⏳ جاري بدء النشر اليدوي...")
-        await post_to_channels_logic(context.bot, force_run=True)
-        await query.edit_message_text("✅ تم بدء عملية النشر.", reply_markup=get_back_keyboard(role))
-
-    if data == "view_logs" and role == "dev":
-        session = Session()
-        logs = session.query(ActivityLog).order_by(ActivityLog.id.desc()).limit(20).all()
-        txt = "📜 <b>آخر 20 عملية:</b>\n\n"
-        for log in logs:
-            txt += f"[{log.timestamp.strftime('%H:%M')}] <b>{log.action}</b> (ID: {log.user_id})\n{log.details}\n---\n"
-        session.close()
-        if len(txt) > 4000: txt = txt[:4000] + "..."
-        await query.message.reply_text(txt, parse_mode='HTML')
-        kb, _ = get_main_menu("dev")
-        await query.edit_message_text("القائمة الرئيسية 🔧", reply_markup=kb)
-    
-    if data == "stats":
-        txt = get_stats()
-        await query.edit_message_text(txt, reply_markup=get_back_keyboard(role), parse_mode='HTML')
-
-    # إضافة القناة Steps
+    # --- خطوات إضافة القناة ---
     if data.startswith("cat_select_"):
         cat = data.split("_")[-1]
         context.user_data['add_cat'] = cat
-        await query.edit_message_text(f"تم اختيار القسم: <b>{cat}</b>\nاختر شكل الرسالة:", reply_markup=get_format_keyboard("fmt_select"))
+        context.user_data['state'] = STATE_ADD_CHANNEL_FORMAT # تحديث الحالة
+        await query.edit_message_text("⚙️ <b>خطوة 3/4:</b>\n\nاختر شكل الرسالة:", reply_markup=get_format_keyboard("fmt_select"))
         return STATE_ADD_CHANNEL_FORMAT
 
     if data.startswith("fmt_select_"):
         fmt = data.split("_")[-1]
         context.user_data['add_fmt'] = fmt
-        await query.edit_message_text("اختر توقيت النشر:", reply_markup=get_time_keyboard("time_select"))
+        context.user_data['state'] = STATE_ADD_CHANNEL_TIME # تحديث الحالة
+        await query.edit_message_text("⚙️ <b>خطوة 4/4:</b>\n\nاختر توقيت النشر:", reply_markup=get_time_keyboard("time_select"))
         return STATE_ADD_CHANNEL_TIME
 
     if data.startswith("time_select_"):
@@ -425,7 +325,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if time_type == "fixed": msg = "أرسل الساعات مفصولة بفاصلة (مثال: 10, 14, 20):"
             elif time_type == "interval": msg = "أرسل عدد الدقائق (مثال: 60):"
             await query.edit_message_text(msg, reply_markup=get_back_keyboard(role))
+            # نستمر في نفس الحالة TIME بانتظار النص
             return STATE_ADD_CHANNEL_TIME
+
+    # --- أوامر أخرى ---
+    if data == "force_post_now":
+        await query.edit_message_text("⏳ جاري النشر...")
+        await post_to_channels_logic(context.bot, force_run=True)
+        await query.edit_message_text("✅ تم.", reply_markup=get_back_keyboard(role))
+    
+    if data == "stats":
+        txt = get_stats()
+        await query.edit_message_text(txt, reply_markup=get_back_keyboard(role), parse_mode='HTML')
 
 async def show_channels_list(query, role):
     session = Session()
@@ -441,7 +352,6 @@ async def show_channels_list(query, role):
             ])
         else:
             buttons.append([InlineKeyboardButton(btn_text, callback_data=f"toggle_channel_{ch.id}")])
-    
     buttons.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"back_{role}")])
     session.close()
     await query.edit_message_text("قائمة القنوات:", reply_markup=InlineKeyboardMarkup(buttons))
@@ -472,44 +382,46 @@ async def send_user_content(query, cat_code):
     session = Session()
     content = session.query(Content).filter_by(category=cat_code).order_by(func.random()).first()
     session.close()
-    
     cat_name = next((n for n, c in CATEGORIES if c == cat_code), cat_code)
-    
     if content:
         text = f"✨ <b>{cat_name}</b>\n\n<blockquote>{content.text}</blockquote>"
     else:
-        text = f"📭 لا يوجد محتوى في قسم {cat_name}."
-    
+        text = f"📭 لا يوجد محتوى."
     buttons = [
         [InlineKeyboardButton("🔄 غيرها", callback_data=f"user_cat_{cat_code}")],
         [InlineKeyboardButton("🔙 رجوع", callback_data="user_categories")]
     ]
     try:
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode='HTML')
-    except Exception:
+    except:
         pass
 
-# --- معالجة الرسائل والملفات ---
+# --- معالجة النصوص والملفات (التحسين الجديد) ---
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    role = get_role(user_id)
-    text = update.message.text
-
-    if context.user_data.get('state') == STATE_ADD_CHANNEL_LINK:
-        info = await resolve_channel(context.bot, text, update.message.forward_from_chat)
+    state = context.user_data.get('state')
+    
+    # 1. حالة إضافة رابط القناة
+    if state == STATE_ADD_CHANNEL_LINK:
+        info, error = await resolve_channel(context.bot, update.message.text, update.message.forward_from_chat)
+        
         if info:
             context.user_data['pending_channel'] = info
             context.user_data['state'] = STATE_ADD_CHANNEL_CATEGORY
-            await update.message.reply_text(f"✅ تم التحقق من القناة: <b>{info['title']}</b>\n\nاختر القسم:", reply_markup=get_categories_keyboard("cat_select"), parse_mode='HTML')
+            await update.message.reply_text(
+                f"✅ تم العثور على القناة: <b>{info['title']}</b>\n\n⚙️ <b>خطوة 2/4:</b>\n\nاختر القسم:",
+                reply_markup=get_categories_keyboard("cat_select"),
+                parse_mode='HTML'
+            )
         else:
-            await update.message.reply_text("❌ تعذر التحقق من القناة. تأكد أن البوت مشرف فيها وأن الرابط صحيح.")
-            context.user_data.clear()
+            # عند الخطأ، نظهر الرسالة ولكن **لا نغلق المحادثة** ولا نمسح الحالة ليسمح بإعادة المحاولة
+            await update.message.reply_text(f"❌ فشل التحقق: {error}\n\nتأكد من إرسال معرف (مثل @channel) أو تحويل رسالة، وأن البوت مشرف في القناة.")
         return
 
-    if context.user_data.get('state') == STATE_ADD_CHANNEL_TIME:
+    # 2. حالة توقيت النشر
+    if state == STATE_ADD_CHANNEL_TIME:
         time_type = context.user_data.get('add_time_type')
-        val = text.strip()
+        val = update.message.text.strip()
         
         valid = False
         if time_type == "fixed":
@@ -520,51 +432,23 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if valid:
             context.user_data['add_time_value'] = val
             save_new_channel(context)
+            role = get_role(update.effective_user.id)
             await update.message.reply_text("✅ تمت إضافة القناة بنجاح!", reply_markup=get_main_menu(role)[0])
-            context.user_data.clear()
+            context.user_data.clear() # مسح البيانات فقط عند النجاح النهائي
         else:
-            await update.message.reply_text("❌ صيغة خاطئة. حاول مرة أخرى.")
-        return
-
-    if context.user_data.get('state') == STATE_BROADCAST_MSG:
-        await update.message.reply_text("⏳ جاري الإرسال...")
-        asyncio.create_task(broadcast_worker(context.bot, text))
-        context.user_data.clear()
-        await update.message.reply_text("✅ تمت الإذاعة بنجاح.", reply_markup=get_main_menu(role)[0])
-        return
-    
-    if context.user_data.get('state') == STATE_BAN_USER_ID:
-        session = Session()
-        try:
-            target_id = int(text)
-            user = session.query(User).filter_by(user_id=target_id).first()
-            if user:
-                user.is_banned = not user.is_banned
-                status = "محظور" if user.is_banned else "غير محظور"
-                session.commit()
-                await update.message.reply_text(f"✅ تم تغيير حالة المستخدم {target_id} إلى {status}.")
-            else:
-                await update.message.reply_text("❌ المستخدم غير موجود.")
-        except ValueError:
-            await update.message.reply_text("❌ أرسل آيدي رقمي فقط.")
-        finally:
-            session.close()
-            context.user_data.clear()
+            await update.message.reply_text("❌ صيغة التوقيت غير صحيحة. حاول مرة أخرى.")
         return
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    role = get_role(user_id)
-    
     if context.user_data.get('state') == STATE_UPLOAD_CONTENT:
         doc = update.message.document
         cat = context.user_data.get('upload_category')
         
         if doc.mime_type != "text/plain":
-            await update.message.reply_text("❌ الملف يجب أن يكون نصياً (.txt)")
+            await update.message.reply_text("❌ ملف .txt فقط.")
             return
         
-        await update.message.reply_text("⏳ جاري معالجة الملف...")
+        await update.message.reply_text("⏳ جاري المعالجة...")
         try:
             file = await doc.get_file()
             bytes_io = await file.download_as_bytearray()
@@ -577,42 +461,73 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     count += 1
             session.commit()
             session.close()
-            await update.message.reply_text(f"✅ تمت إضافة {count} نص للقسم <b>{cat}</b>.", reply_markup=get_main_menu(role)[0], parse_mode='HTML')
+            role = get_role(update.effective_user.id)
+            await update.message.reply_text(f"✅ تمت إضافة {count} نص.", reply_markup=get_main_menu(role)[0], parse_mode='HTML')
             context.user_data.clear()
         except Exception as e:
             logger.error(f"Upload error: {e}")
-            await update.message.reply_text("❌ حدث خطأ أثناء المعالجة.")
+            await update.message.reply_text("❌ حدث خطأ.")
 
-# --- دوال النشر الأساسية ---
-
+# --- دالة حل القنوات المحسنة ---
 async def resolve_channel(bot, text, forward_chat):
+    """
+    ترجع (dict_info, None) عند النجاح أو (None, error_message) عند الفشل.
+    """
     chat_id, title = None, None
-    if forward_chat and forward_chat.type in ['channel', 'supergroup']:
-        chat_id = forward_chat.id
-        title = forward_chat.title
-    else:
+    
+    # 1. محاولة من الرسالة المحولة (أفضل طريقة)
+    if forward_chat:
+        if forward_chat.type in ['channel', 'supergroup']:
+            chat_id = forward_chat.id
+            title = forward_chat.title
+        else:
+            return None, "الرسالة المحولة ليست من قناة أو مجموعة."
+    
+    # 2. محاولة من النص (الرابط أو المعرف)
+    if not chat_id:
         txt = text.strip()
         try:
-            if txt.startswith("@") or not txt.startswith("http"):
+            # التحقق من الروابط غير المدعومة أولاً لتوضيح الأمر للمستخدم
+            if "t.me/+" in txt or "joinchat" in txt:
+                return None, "روابط الانضمام (t.me/+) غير مدعومة. استخدم معرف القناة (مثل @name) أو قم بتحويل رسالة."
+            
+            if "t.me/c/" in txt:
+                return None, "الروابط العميقة (Deep Links) غير مدعومة مباشرة. يرجى تحويل رسالة من القناة."
+
+            # المحاولة عبر المعرف
+            if txt.startswith("@"):
                 chat_obj = await bot.get_chat(txt)
                 chat_id = chat_obj.id
                 title = chat_obj.title
+            
+            # المحاولة عبر الرابط العام
             elif "t.me/" in txt:
-                username = txt.split("t.me/")[-1].split("/")[0]
+                username = txt.split("t.me/")[-1].split("/")[0].split("?")[0]
                 chat_obj = await bot.get_chat(f"@{username}")
                 chat_id = chat_obj.id
                 title = chat_obj.title
-        except Exception:
-            pass
+            
+        except Exception as e:
+            # رسائل خطأ واضحة
+            err_str = str(e)
+            if "Chat not found" in err_str:
+                return None, "لم يتم العثور على القناة. تأكد من المعرف أو أن البوت عضو فيها."
+            if "Forbidden" in err_str or "bot was blocked" in err_str:
+                return None, "البوت محظور أو ليس لديه صلاحيات للوصول للقناة."
+            return None, f"خطأ غير متوقع: {err_str}"
     
-    if chat_id:
-        try:
-            member = await bot.get_chat_member(chat_id, bot.id)
-            if member.status in ['administrator', 'creator']:
-                return {'id': chat_id, 'title': title}
-        except Exception:
-            pass
-    return None
+    if not chat_id:
+        return None, "لم أستطع تحديد القناة من النص المرسل."
+
+    # 3. التحقق من صلاحيات البوت (هل هو مشرف؟)
+    try:
+        member = await bot.get_chat_member(chat_id, bot.id)
+        if member.status in ['administrator', 'creator']:
+            return {'id': chat_id, 'title': title}, None
+        else:
+            return None, "البوت موجود في القناة لكنه ليس مشرفاً. يجب رفع البوت مشرفاً أولاً."
+    except Exception as e:
+        return None, f"فشل التحقق من الصلاحيات: {e}"
 
 def save_new_channel(context):
     data = context.user_data.get('pending_channel')
@@ -620,6 +535,12 @@ def save_new_channel(context):
     
     session = Session()
     try:
+        # التأكد من عدم وجود تكرار
+        exists = session.query(Channel).filter_by(channel_id=data['id']).first()
+        if exists:
+            logger.info(f"Channel {data['title']} already exists.")
+            return
+
         new_ch = Channel(
             channel_id=data['id'],
             title=data['title'],
@@ -631,7 +552,7 @@ def save_new_channel(context):
         )
         session.add(new_ch)
         session.commit()
-        db_log_action(context._user_id, "ADD_CHANNEL", f"Added channel {data['title']}")
+        db_log_action(context._user_id, "ADD_CHANNEL", f"Added {data['title']}")
     finally:
         session.close()
 
@@ -649,36 +570,25 @@ async def post_to_channels_logic(bot, force_run=False):
         for ch in channels:
             try:
                 should_post = False
-                
-                if force_run:
-                    should_post = True
-                
+                if force_run: should_post = True
                 elif ch.time_type == 'default':
-                    if random.random() < 0.05:
-                        should_post = True
-                        
+                    if random.random() < 0.05: should_post = True
                 elif ch.time_type == 'fixed':
                     if ch.time_value:
                         hours = [int(h) for h in ch.time_value.split(',')]
                         if now.hour in hours:
-                            if not ch.last_post_at or ch.last_post_at.hour != now.hour:
-                                should_post = True
-                                
+                            if not ch.last_post_at or ch.last_post_at.hour != now.hour: should_post = True
                 elif ch.time_type == 'interval':
                     if ch.time_value:
                         mins = int(ch.time_value)
-                        if not ch.last_post_at:
-                            should_post = True
-                        elif (now - ch.last_post_at).total_seconds() >= (mins * 60):
-                            should_post = True
+                        if not ch.last_post_at: should_post = True
+                        elif (now - ch.last_post_at).total_seconds() >= (mins * 60): should_post = True
                 
                 if should_post:
                     content = session.query(Content).filter_by(category=ch.category).order_by(func.random()).first()
                     if content:
                         text = content.text
-                        if ch.msg_format == 'blockquote':
-                            text = f"<blockquote>{text}</blockquote>"
-                        
+                        if ch.msg_format == 'blockquote': text = f"<blockquote>{text}</blockquote>"
                         try:
                             await bot.send_message(ch.channel_id, text, parse_mode='HTML')
                             ch.last_post_at = now
@@ -690,43 +600,24 @@ async def post_to_channels_logic(bot, force_run=False):
                             if "Forbidden" in str(e) or "chat not found" in str(e):
                                 ch.is_active = False
                                 session.commit()
-            
             except Exception as e:
                 logger.error(f"Error in loop: {e}")
-
     finally:
         session.close()
 
-async def broadcast_worker(bot, text):
+def get_stats():
     session = Session()
     try:
-        users = session.query(User).filter(User.is_banned == False).all()
-        count = 0
-        for u in users:
-            try:
-                await bot.send_message(u.user_id, text)
-                count += 1
-                await asyncio.sleep(0.1)
-            except Exception:
-                pass
-        logger.info(f"Broadcast sent to {count} users.")
+        u = session.query(User).count()
+        c = session.query(Content).count()
+        return f"👥 {u} مستخدم | 📝 {c} نص."
     finally:
         session.close()
 
-# --- إعداد التطبيق ---
-
+# --- التشغيل ---
 def main():
     application = Application.builder().token(TOKEN).build()
 
-    async def post_commands(app):
-        await app.bot.set_my_commands([
-            BotCommand("start", "بدء البوت"),
-            BotCommand("help", "مساعدة"),
-        ], scope=BotCommandScopeAllPrivateChats())
-
-    application.post_init = post_commands
-
-    # Conversation Handlers
     add_channel_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^add_channel_start$")],
         states={
@@ -750,30 +641,10 @@ def main():
         fallbacks=[CallbackQueryHandler(button_handler, pattern="^back_")],
         name="upload_conv"
     )
-    
-    broadcast_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(button_handler, pattern="^start_broadcast$")],
-        states={
-            STATE_BROADCAST_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)]
-        },
-        fallbacks=[CallbackQueryHandler(button_handler, pattern="^back_")],
-        name="broadcast_conv"
-    )
-
-    ban_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(button_handler, pattern="^ban_user_start$")],
-        states={
-            STATE_BAN_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)]
-        },
-        fallbacks=[CallbackQueryHandler(button_handler, pattern="^back_")],
-        name="ban_conv"
-    )
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(add_channel_conv)
     application.add_handler(upload_conv)
-    application.add_handler(broadcast_conv)
-    application.add_handler(ban_conv)
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
@@ -781,7 +652,7 @@ def main():
     if application.job_queue:
         application.job_queue.run_repeating(post_to_channels_logic, interval=60, first=10)
 
-    logger.info("Bot started polling...")
+    logger.info("Bot started...")
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":

@@ -178,55 +178,59 @@ def get_role(user_id):
     finally:
         session.close()
 
-def get_required_channel():
-    session = get_session()
-    try:
-        setting = session.query(BotSettings).filter_by(key='required_channel').first()
-        return setting.value if setting else None
-    finally:
-        session.close()
-
-async def check_subscription(user_id, required_channel):
-    if not required_channel: return True
-    try:
-        member = await APPLICATION.bot.get_chat_member(required_channel, user_id)
-        return member.status in ['member', 'administrator', 'creator']
-    except:
-        return False
-
-def get_stats():
-    session = get_session()
-    try:
-        users_count = session.query(User).count()
-        channels_count = session.query(Channel).count()
-        content_count = session.query(Content).count()
-        return f"📊 <b>إحصائيات البوت:</b>\n\n👥 المستخدمين: {users_count}\n📢 القنوات: {channels_count}\n📝 المحتوى: {content_count}"
-    finally:
-        session.close()
-
 CATEGORIES = [
     ("❤️ حب", "حب"), ("🎂 عيد ميلاد", "عيد ميلاد"), ("💭 اقتباسات", "اقتباسات"),
-    ("📜 شعر", "شعر"), ("📚 ديني", "ديني"), ("😂 مضحك", "مضحك")
+    ("📜 شعر", "شعر"), ("📚 ديني", "ديني"), ("😂 مضحك", "مضحك"),
+    ("📱 تقني", "تقني"), ("⚽ رياضة", "رياضة"), ("🎨 فن", "فن")
 ]
 
-# --- الكيبوردات ---
+# --- الكيبوردات (نفس هيكلية المستخدم الأصلية) ---
 
 def get_main_menu(role):
-    buttons = []
-    if role in ["dev", "admin"]:
+    if role == "dev":
         buttons = [
-            [InlineKeyboardButton("📢 إضافة قناة", callback_data="add_channel_start"), InlineKeyboardButton("📢 إدارة القنوات", callback_data="manage_channels")],
-            [InlineKeyboardButton("📝 رفع محتوى", callback_data="upload_content_menu"), InlineKeyboardButton("📂 إدارة المحتوى", callback_data="manage_content")],
-            [InlineKeyboardButton("🔍 ترشيحات", callback_data="filters_menu"), InlineKeyboardButton("📊 الإحصائيات", callback_data="stats")],
-            [InlineKeyboardButton("🔔 الإشعارات", callback_data="notifications_menu"), InlineKeyboardButton("💾 النسخ الاحتياطي", callback_data="backup_menu")]
+            [InlineKeyboardButton("📢 إضافة قناة", callback_data="add_channel_start")],
+            [InlineKeyboardButton("📢 إدارة القنوات", callback_data="manage_channels")],
+            [InlineKeyboardButton("📝 رفع محتوى", callback_data="upload_content_menu")],
+            [InlineKeyboardButton("📂 إدارة المحتوى", callback_data="manage_content")],
+            [InlineKeyboardButton("🔍 ترشيحات", callback_data="filters_menu")],
+            [InlineKeyboardButton("🔧 إعدادات البوت", callback_data="bot_settings")],
+            [InlineKeyboardButton("📊 الإحصائيات", callback_data="stats")],
+            [InlineKeyboardButton("🔒 الأمان", callback_data="security_menu")],
+            [InlineKeyboardButton("💾 النسخ الاحتياطي", callback_data="backup_menu")],
+        ]
+    elif role == "admin":
+        buttons = [
+            [InlineKeyboardButton("📢 إضافة قناة", callback_data="add_channel_start")],
+            [InlineKeyboardButton("📢 إدارة القنوات", callback_data="manage_channels")],
+            [InlineKeyboardButton("📝 رفع محتوى", callback_data="upload_content_menu")],
+            [InlineKeyboardButton("📂 إدارة المحتوى", callback_data="manage_content")],
+            [InlineKeyboardButton("🔍 ترشيحات", callback_data="filters_menu")],
+            [InlineKeyboardButton("📊 الإحصائيات", callback_data="stats")],
+            [InlineKeyboardButton("🔔 الإشعارات", callback_data="notifications_menu")],
+            [InlineKeyboardButton("🚀 نشر الآن", callback_data="force_post_now")],
+            [InlineKeyboardButton("🔧 إعدادات البوت", callback_data="bot_settings")],
+        ]
+    elif role == "premium":
+        buttons = [
+            [InlineKeyboardButton("📂 الأقسام", callback_data="user_categories")],
+            [InlineKeyboardButton("🔖 اقتباس عشوائي", callback_data="user_random")],
+            [InlineKeyboardButton("📝 مساهمة (رفع محتوى)", callback_data="upload_content_menu")],
+            [InlineKeyboardButton("🔍 بحث متقدم", callback_data="search_menu")],
+            [InlineKeyboardButton("📊 تحليلاتي", callback_data="my_analytics")],
+            [InlineKeyboardButton("🔔 إشعاراتي", callback_data="my_notifications")],
         ]
     else:
         buttons = [
-            [InlineKeyboardButton("📂 الأقسام", callback_data="user_categories"), InlineKeyboardButton("🔖 اقتباس عشوائي", callback_data="user_random")],
-            [InlineKeyboardButton("🔍 بحث", callback_data="search_menu"), InlineKeyboardButton("💎 المميز", callback_data="premium_menu")],
-            [InlineKeyboardButton("📝 مساهمة", callback_data="upload_content_menu")]
+            [InlineKeyboardButton("📂 الأقسام", callback_data="user_categories")],
+            [InlineKeyboardButton("🔖 اقتباس عشوائي", callback_data="user_random")],
+            [InlineKeyboardButton("📝 مساهمة (رفع محتوى)", callback_data="upload_content_menu")],
+            [InlineKeyboardButton("🔍 بحث", callback_data="search_menu")],
+            [InlineKeyboardButton("💎 الميزات المميزة", callback_data="premium_menu")],
+            [InlineKeyboardButton("⚙️ الإعدادات", callback_data="user_settings")],
         ]
-    title = "لوحة التحكم 🔧" if role in ["dev", "admin"] else "القائمة الرئيسية 🏠"
+    
+    title = "لوحة المطور 🔧" if role == "dev" else "لوحة المشرف 👨‍💼" if role == "admin" else "لوحة المميز 💎" if role == "premium" else "القائمة الرئيسية 🏠"
     return InlineKeyboardMarkup(buttons), title
 
 def get_categories_keyboard(prefix):
@@ -234,7 +238,7 @@ def get_categories_keyboard(prefix):
     buttons.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_main")])
     return InlineKeyboardMarkup(buttons)
 
-# --- معالجات الأحداث ---
+# --- معالجات الأحداث والوظائف ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -249,7 +253,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     role = get_role(user_id)
     kb, title = get_main_menu(role)
-    await update.message.reply_text(f"أهلاً بك! 👋\n\n🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
+    await update.message.reply_text(f"أهلاً بك {update.effective_user.first_name}! 👋\n\n🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -258,32 +262,41 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     role = get_role(user_id)
 
+    # --- التنقل الأساسي ---
     if data == "back_main":
         kb, title = get_main_menu(role)
         await query.edit_message_text(f"🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
-    
-    elif data == "stats":
-        await query.edit_message_text(get_stats(), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]), parse_mode='HTML')
+        return
 
-    elif data == "add_channel_start":
+    # --- إدارة القنوات ---
+    if data == "add_channel_start":
         context.user_data['mode'] = 'add_channel_link'
         await query.edit_message_text("🔗 أرسل رابط القناة (مثال: @my_channel):", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
+    
+    elif data == "manage_channels":
+        session = get_session()
+        channels = session.query(Channel).all()
+        if not channels:
+            await query.edit_message_text("لا توجد قنوات مضافة.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
+        else:
+            text = "📢 <b>القنوات المضافة:</b>\n\n"
+            btns = []
+            for ch in channels:
+                text += f"• {ch.title} ({ch.category})\n"
+                btns.append([InlineKeyboardButton(f"🗑️ حذف {ch.title}", callback_data=f"del_ch_{ch.id}")])
+            btns.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_main")])
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(btns), parse_mode='HTML')
+        session.close()
 
-    elif data.startswith("set_cat_"):
-        link = context.user_data.get('temp_channel_link')
-        category = data.split("_")[-1]
-        try:
-            chat = await APPLICATION.bot.get_chat(link)
-            session = get_session()
-            new_ch = Channel(channel_id=chat.id, title=chat.title, category=category, added_by=user_id)
-            session.add(new_ch)
-            session.commit()
-            session.close()
-            await query.edit_message_text(f"✅ تمت إضافة القناة: {chat.title}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
-        except Exception as e:
-            await query.edit_message_text(f"❌ خطأ: {e}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
-        context.user_data['mode'] = None
+    elif data.startswith("del_ch_"):
+        ch_id = int(data.split("_")[-1])
+        session = get_session()
+        session.query(Channel).filter_by(id=ch_id).delete()
+        session.commit()
+        session.close()
+        await query.edit_message_text("✅ تم حذف القناة بنجاح.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="manage_channels")]]))
 
+    # --- إدارة المحتوى ---
     elif data == "upload_content_menu":
         await query.edit_message_text("اختر القسم لرفع المحتوى:", reply_markup=get_categories_keyboard("upload"))
 
@@ -301,57 +314,126 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         category = data.split("_")[-1]
         context.user_data['mode'] = 'upload_manual'
         context.user_data['temp_category'] = category
-        await query.edit_message_text(f"✏️ أرسل النص الآن:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
+        await query.edit_message_text(f"✏️ أرسل النص الآن لقسم {category}:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
 
     elif data.startswith("file_"):
         category = data.split("_")[-1]
         context.user_data['mode'] = 'upload_file'
         context.user_data['temp_category'] = category
-        await query.edit_message_text(f"📁 أرسل ملف .txt الآن:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
+        await query.edit_message_text(f"📁 أرسل ملف .txt الآن لقسم {category}:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
 
-    elif data == "search_menu":
-        context.user_data['mode'] = 'search'
-        await query.edit_message_text("🔍 أرسل كلمة البحث:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
+    elif data == "manage_content":
+        await query.edit_message_text("إدارة المحتوى - اختر القسم:", reply_markup=get_categories_keyboard("manage_cat"))
 
-    elif data == "notifications_menu":
-        context.user_data['mode'] = 'add_notif'
-        await query.edit_message_text("🔔 أرسل نص الإشعار لإرساله لجميع المستخدمين:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
+    elif data.startswith("manage_cat_"):
+        cat = data.split("_")[-1]
+        session = get_session()
+        count = session.query(Content).filter_by(category=cat).count()
+        session.close()
+        btns = [
+            [InlineKeyboardButton(f"🗑️ مسح كل محتوى {cat} ({count})", callback_data=f"clear_cat_{cat}")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="manage_content")]
+        ]
+        await query.edit_message_text(f"إدارة قسم {cat}:", reply_markup=InlineKeyboardMarkup(btns))
 
+    elif data.startswith("clear_cat_"):
+        cat = data.split("_")[-1]
+        session = get_session()
+        session.query(Content).filter_by(category=cat).delete()
+        session.commit()
+        session.close()
+        await query.edit_message_text(f"✅ تم مسح محتوى قسم {cat}.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="manage_content")]]))
+
+    # --- ترشيحات (Filters) ---
+    elif data == "filters_menu":
+        session = get_session()
+        filters_list = session.query(Filter).all()
+        text = "🔍 <b>قائمة الترشيحات:</b>\n\n"
+        for f in filters_list:
+            text += f"• {f.word} -> {f.replacement}\n"
+        btns = [
+            [InlineKeyboardButton("➕ إضافة ترشيح", callback_data="add_filter")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(btns), parse_mode='HTML')
+        session.close()
+
+    elif data == "add_filter":
+        context.user_data['mode'] = 'add_filter_word'
+        await query.edit_message_text("أرسل الكلمة التي تريد استبدالها:")
+
+    # --- إعدادات وأمان ونسخ احتياطي ---
+    elif data == "bot_settings":
+        await query.edit_message_text("🔧 <b>إعدادات البوت:</b>\n\n1. القناة الإجبارية\n2. وضع الصيانة\n3. رسالة الترحيب", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📢 ضبط القناة الإجبارية", callback_data="set_req_channel")], [InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]), parse_mode='HTML')
+
+    elif data == "set_req_channel":
+        context.user_data['mode'] = 'set_req_channel'
+        await query.edit_message_text("أرسل معرف القناة الإجبارية (مثال: @my_channel):")
+
+    elif data == "security_menu":
+        await query.edit_message_text("🔒 <b>قائمة الأمان:</b>\n\n- سجلات الدخول\n- حظر المستخدمين\n- صلاحيات المشرفين", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 سجل الأنشطة", callback_data="view_logs")], [InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]), parse_mode='HTML')
+
+    elif data == "view_logs":
+        session = get_session()
+        logs = session.query(ActivityLog).order_by(ActivityLog.timestamp.desc()).limit(10).all()
+        text = "📋 <b>آخر الأنشطة:</b>\n\n"
+        for l in logs:
+            text += f"• {l.timestamp.strftime('%H:%M')} - {l.action}: {l.details[:30]}\n"
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="security_menu")]]), parse_mode='HTML')
+        session.close()
+
+    elif data == "backup_menu":
+        await query.edit_message_text("💾 <b>النسخ الاحتياطي:</b>", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💾 إنشاء نسخة الآن", callback_data="create_backup_now")], [InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]), parse_mode='HTML')
+
+    elif data == "create_backup_now":
+        try:
+            filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+            shutil.copy2("bot_data.db", filename)
+            await query.edit_message_text(f"✅ تم إنشاء النسخة: {filename}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="backup_menu")]]))
+        except Exception as e:
+            await query.edit_message_text(f"❌ فشل النسخ: {e}")
+
+    # --- وظائف المستخدم ---
     elif data == "user_categories":
-        await query.edit_message_text("اختر القسم:", reply_markup=get_categories_keyboard("user_cat"))
+        await query.edit_message_text("📂 اختر القسم الذي تريد تصفحه:", reply_markup=get_categories_keyboard("user_cat"))
 
     elif data.startswith("user_cat_"):
         cat = data.split("_")[-1]
         session = get_session()
         content = session.query(Content).filter_by(category=cat).order_by(func.random()).first()
         if content:
+            content.view_count += 1
+            session.commit()
             await query.edit_message_text(f"✨ <b>{cat}</b>\n\n{content.text}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 غيرها", callback_data=f"user_cat_{cat}")], [InlineKeyboardButton("🔙 رجوع", callback_data="user_categories")]]), parse_mode='HTML')
         else:
-            await query.edit_message_text("📭 لا يوجد محتوى حالياً.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="user_categories")]]))
+            await query.edit_message_text(f"📭 قسم {cat} فارغ حالياً.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="user_categories")]]))
         session.close()
 
-    elif data == "manage_channels":
+    elif data == "user_random":
         session = get_session()
-        channels = session.query(Channel).all()
-        if not channels:
-            await query.edit_message_text("لا توجد قنوات.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
+        content = session.query(Content).order_by(func.random()).first()
+        if content:
+            await query.edit_message_text(f"🎲 <b>اقتباس عشوائي ({content.category}):</b>\n\n{content.text}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 واحد آخر", callback_data="user_random")], [InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]), parse_mode='HTML')
         else:
-            text = "📢 <b>القنوات:</b>\n"
-            btns = []
-            for c in channels:
-                text += f"- {c.title}\n"
-                btns.append([InlineKeyboardButton(f"🗑️ حذف {c.title}", callback_data=f"del_ch_{c.id}")])
-            btns.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_main")])
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(btns), parse_mode='HTML')
+            await query.edit_message_text("📭 لا يوجد محتوى في البوت بعد.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]))
         session.close()
 
-    elif data.startswith("del_ch_"):
-        ch_id = int(data.split("_")[-1])
+    elif data == "search_menu":
+        context.user_data['mode'] = 'search'
+        await query.edit_message_text("🔍 أرسل كلمة البحث الآن:")
+
+    elif data == "stats":
         session = get_session()
-        session.query(Channel).filter_by(id=ch_id).delete()
-        session.commit()
+        u_count = session.query(User).count()
+        c_count = session.query(Content).count()
+        ch_count = session.query(Channel).count()
+        text = f"📊 <b>إحصائيات البوت:</b>\n\n👥 المستخدمين: {u_count}\n📝 المحتوى: {c_count}\n📢 القنوات: {ch_count}"
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="back_main")]]), parse_mode='HTML')
         session.close()
-        await query.edit_message_text("✅ تم حذف القناة.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="manage_channels")]]))
+
+    elif data == "notifications_menu":
+        context.user_data['mode'] = 'broadcast'
+        await query.edit_message_text("🔔 أرسل الرسالة التي تريد إذاعتها لجميع المستخدمين:")
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode = context.user_data.get('mode')
@@ -360,78 +442,95 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if mode == 'add_channel_link':
         context.user_data['temp_channel_link'] = text
-        context.user_data['mode'] = 'add_channel_category'
         btns = [[InlineKeyboardButton(n, callback_data=f"set_cat_{c}")] for n, c in CATEGORIES]
         await update.message.reply_text("اختر فئة القناة:", reply_markup=InlineKeyboardMarkup(btns))
+        context.user_data['mode'] = 'add_channel_category'
+
+    elif mode == 'add_channel_category':
+        # هذا يتم معالجته في button_handler عبر set_cat_
+        pass
 
     elif mode == 'upload_manual':
         cat = context.user_data.get('temp_category')
         session = get_session()
-        new_content = Content(category=cat, text=text, added_by=user_id)
-        session.add(new_content)
+        new_c = Content(category=cat, text=text, added_by=user_id)
+        session.add(new_c)
         session.commit()
         session.close()
-        await update.message.reply_text("✅ تم الحفظ!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 القائمة", callback_data="back_main")]]))
+        await update.message.reply_text(f"✅ تم حفظ النص في قسم {cat}.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 القائمة", callback_data="back_main")]]))
         context.user_data['mode'] = None
 
     elif mode == 'search':
         session = get_session()
         results = session.query(Content).filter(Content.text.contains(text)).limit(5).all()
         if not results:
-            await update.message.reply_text("❌ لا توجد نتائج.")
+            await update.message.reply_text("❌ لم يتم العثور على نتائج.")
         else:
-            res_text = "🔍 <b>نتائج البحث:</b>\n\n"
+            res = "🔍 <b>نتائج البحث:</b>\n\n"
             for r in results:
-                res_text += f"📌 {r.text[:100]}...\n\n"
-            await update.message.reply_text(res_text, parse_mode='HTML')
+                res += f"📌 ({r.category}): {r.text[:100]}...\n\n"
+            await update.message.reply_text(res, parse_mode='HTML')
         session.close()
         context.user_data['mode'] = None
 
-    elif mode == 'add_notif':
+    elif mode == 'broadcast':
         session = get_session()
         users = session.query(User).all()
-        count = 0
+        sent = 0
         for u in users:
             try:
-                await context.bot.send_message(u.user_id, f"🔔 <b>إشعار جديد:</b>\n\n{text}", parse_mode='HTML')
-                count += 1
+                await context.bot.send_message(u.user_id, f"📢 <b>رسالة من الإدارة:</b>\n\n{text}", parse_mode='HTML')
+                sent += 1
             except: pass
-        await update.message.reply_text(f"✅ تم إرسال الإشعار لـ {count} مستخدم.")
+        await update.message.reply_text(f"✅ تم الإرسال لـ {sent} مستخدم.")
         session.close()
+        context.user_data['mode'] = None
+
+    elif mode == 'add_filter_word':
+        context.user_data['filter_word'] = text
+        context.user_data['mode'] = 'add_filter_replacement'
+        await update.message.reply_text(f"أرسل الكلمة البديلة لـ '{text}':")
+
+    elif mode == 'add_filter_replacement':
+        word = context.user_data.get('filter_word')
+        session = get_session()
+        new_f = Filter(word=word, replacement=text, added_by=user_id)
+        session.add(new_f)
+        session.commit()
+        session.close()
+        await update.message.reply_text(f"✅ تم إضافة الترشيح: {word} -> {text}")
+        context.user_data['mode'] = None
+
+    elif mode == 'set_req_channel':
+        session = get_session()
+        setting = session.query(BotSettings).filter_by(key='required_channel').first()
+        if setting: setting.value = text
+        else: session.add(BotSettings(key='required_channel', value=text))
+        session.commit()
+        session.close()
+        await update.message.reply_text(f"✅ تم ضبط القناة الإجبارية على: {text}")
         context.user_data['mode'] = None
 
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    mode = context.user_data.get('mode')
-    if mode == 'upload_file':
+    if context.user_data.get('mode') == 'upload_file':
         doc = update.message.document
         if not doc.file_name.endswith('.txt'):
-            await update.message.reply_text("❌ يرجى إرسال ملف بصيغة .txt فقط.")
+            await update.message.reply_text("❌ يرجى إرسال ملف .txt")
             return
-        
         file = await doc.get_file()
         content_bytes = await file.download_as_bytearray()
         content_text = content_bytes.decode('utf-8')
-        
         cat = context.user_data.get('temp_category')
-        lines = content_text.split('\n')
         session = get_session()
         added = 0
-        for line in lines:
+        for line in content_text.split('\n'):
             if line.strip():
-                new_c = Content(category=cat, text=line.strip(), added_by=update.effective_user.id)
-                session.add(new_c)
+                session.add(Content(category=cat, text=line.strip(), added_by=update.effective_user.id))
                 added += 1
         session.commit()
         session.close()
-        await update.message.reply_text(f"✅ تم رفع {added} نص بنجاح!")
+        await update.message.reply_text(f"✅ تم استيراد {added} نص بنجاح.")
         context.user_data['mode'] = None
-
-async def backup_database():
-    try:
-        shutil.copy2("bot_data.db", f"backup_{datetime.now().strftime('%Y%m%d')}.db")
-        logger.info("Backup created.")
-    except:
-        logger.error("Backup failed.")
 
 def main():
     global APPLICATION

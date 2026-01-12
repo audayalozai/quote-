@@ -1484,30 +1484,36 @@ async def periodic_stats():
         await asyncio.sleep(60 * 60)
 
 # --- التشغيل ---
+# --- التشغيل ---
 def main():
     """البدء في التشغيل"""
     global APPLICATION
     APPLICATION = Application.builder().token(TOKEN).build()
 
-    # تسجيل الهاندلرز
-    APPLICATION.add_handler(CommandHandler("start", start))
+    # تسجيل الهاندلرز (هنا نتأكد أن الـ start مسجل)
+    start_handler = CommandHandler("start", start)
+    APPLICATION.add_handler(start_handler)
     APPLICATION.add_handler(CallbackQueryHandler(button_handler))
-    
-    # استخدام asyncio.create_task لتشغيل المهام في الخلفية بدلاً من add_task
+
+    # دالة لتشغيل المهام في الخلفية بعد بدء البوت
     async def post_init(app: Application):
-        logger.info("Starting background tasks...")
+        logger.info("Bot is initialized. Starting background tasks...")
+        # استخدام create_task لضمان عدم تعطل الاستماع للرسائل
         asyncio.create_task(process_task_queue())
         asyncio.create_task(periodic_backup())
         asyncio.create_task(periodic_stats())
 
+    # ربط دالة البدء بالبوت
     APPLICATION.post_init = post_init
     
     # جدولة الإشعارات
     if APPLICATION.job_queue:
-        APPLICATION.job_queue.run_repeating(send_scheduled_notifications, interval=300)  # كل 5 دقائق
-        APPLICATION.job_queue.run_repeating(backup_database, interval=86400)  # كل 24 ساعة
+        APPLICATION.job_queue.run_repeating(send_scheduled_notifications, interval=300)
+        APPLICATION.job_queue.run_repeating(backup_database, interval=86400)
 
     logger.info("Bot started polling...")
+    
+    # تشغيل البوت
     APPLICATION.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":

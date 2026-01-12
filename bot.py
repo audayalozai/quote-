@@ -165,7 +165,8 @@ class Analytics(Base):
     channel_id = Column(Integer, nullable=True)
     content_id = Column(Integer, nullable=True)
     user_id = Column(Integer, nullable=True)
-    metadata = Column(String, nullable=True)  # JSON string for additional data
+    # تم تغيير اسم العمود من metadata إلى meta_data لتجنب التعارض مع SQLAlchemy
+    meta_data = Column(String, nullable=True)  # JSON string for additional data
 
 class SecurityLog(Base):
     __tablename__ = 'security_logs'
@@ -752,7 +753,7 @@ async def post_content_to_channels(content):
                     action='post',
                     channel_id=channel.channel_id,
                     content_id=content.id,
-                    metadata=json.dumps({'channel_title': channel.title})
+                    meta_data=json.dumps({'channel_title': channel.title})
                 )
                 session.add(analytics)
                 session.commit()
@@ -883,21 +884,11 @@ def get_emoji_category_icon(category):
 
 def get_upload_keyboard(category):
     """الحصول على كيبورد رفع المحتوى مع أزرار رجوع مناسبة"""
-    # ملاحظة: تم تعديل السطر أدناه لأن get_role لا تستقبل update
-    # سنستخدم role افتراضي أو نحصل عليه من context إذا لزم الأمر
-    # هنا سنستخدم 'user' كقيمة افتراضية للرجوع لتجنب الخطأ
-    
-    # للحصول على دور المستخدم في هذه الدالة نحتاج user_id، لكنه غير متوفر هنا مباشرة
-    # لذا سنقوم بتمريره كمعامل إذا احتجنا، أو نستخدم قيمة افتراضية
-    # في هذا المثال سنضع back_admin مؤقتاً أو نعدل الكود لقبول role
-    
     buttons = [
         [InlineKeyboardButton("📁 رفع ملف (.txt)", callback_data=f"upload_file_{category}")],
         [InlineKeyboardButton("✏️ كتابة نص يدوي", callback_data=f"upload_manual_{category}")],
         [InlineKeyboardButton("🏷️ إضافة تصنيفات", callback_data=f"add_tags_{category}")],
         [InlineKeyboardButton("🔙 رجوع للقسم", callback_data="back_from_content")],
-        # تم تصحيح استدعاء get_role
-        # [InlineKeyboardButton("🏠 للقائمة الرئيسية", callback_data=f"back_{get_role(update.effective_user.id)}")]
     ]
     return InlineKeyboardMarkup(buttons)
 
@@ -1365,7 +1356,6 @@ async def show_user_analytics(query, user_id):
             text += f"🏆 أفضل محتوى:\n"
             text += f"النص: {best_content.text[:50]}...\n"
             text += f"المشاهدات: {best_content.view_count}\n"
-            # تم تصحيح الخطأ هنا (إضافة علامات التنصيص)
             text += f"التقييم: {best_content.rating}/5 ({best_content.rating_count} تقييم)\n"
         
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([

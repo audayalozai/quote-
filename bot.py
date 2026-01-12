@@ -1466,7 +1466,12 @@ async def log_security_action(user_id, action, update=None):
 async def process_task_queue():
     """معالجة قائمة المهام"""
     while True:
-        await task_queue.process_tasks_logic()
+        try:
+            await task_queue.process_tasks_logic()
+        except Exception as e:
+            logger.error(f"Error in task queue: {e}")
+        
+        # هذا السطر ضروري جداً ليعطي فرصة للبوت أن يستقبل الرسائل
         await asyncio.sleep(1)
 
 async def periodic_backup():

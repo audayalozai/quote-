@@ -25,7 +25,7 @@ from telegram.ext import (
 )
 
 # --- إعدادات البوت ---
-TOKEN = "6741306329:AAG-or3-0oGmr3QJWN-kCC7tYxP7FTLlYgo"  # ضع التوكن هنا
+TOKEN = "2065549720:AAEo4hrbQ3RFNSfUpKw2_SsiVvbhrZHfqO8"  # ضع التوكن هنا
 DEVELOPER_ID = 778375826       # ضع آيديك الرقمي هنا
 ADMINS_IDS = [778375826]
 APPLICATION = None  # مت عام لتخزين كائن التطبيق

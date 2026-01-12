@@ -888,7 +888,7 @@ def get_upload_keyboard(category):
         [InlineKeyboardButton("✏️ كتابة نص يدوي", callback_data=f"upload_manual_{category}")],
         [InlineKeyboardButton("🏷️ إضافة تصنيفات", callback_data=f"add_tags_{category}")],
         [InlineKeyboardButton("🔙 رجوع للقسم", callback_data="back_from_content")],
-        [InlineKeyboardButton("🏠 للقائمة الرئيسية", callback_data=f"back_{get_role(update.effective_user.id)}")]
+        [InlineKeyboardButton("🏠 للقائمة الرئيسية", callback_data=f"back_user")]
     ]
     return InlineKeyboardMarkup(buttons)
 
@@ -915,7 +915,7 @@ def get_premium_keyboard():
         [InlineKeyboardButton("💎 تفعيل الاشتراك", callback_data="premium_activate")],
         [InlineKeyboardButton("📊 عرض الميزات", callback_data="premium_features")],
         [InlineKeyboardButton("⏜️ تاريخ الاشتراك", callback_data="premium_history")],
-        [InlineKeyboardButton("🔙 رجوع", callback_data="back_user")]
+        [InlineKeyboardButton("🔙 رجوع", callback_data="back_premium")]
     ])
 
 def get_languages_keyboard():
@@ -981,7 +981,7 @@ async def return_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     role = get_role(user_id)
     
     kb, title = get_main_menu(role)
-    text = f"🔹 b>{title}</<b> 🔹"
+    text = f"🔹 {title} 🔹"
     
     if query:
         try:
@@ -1017,7 +1017,7 @@ async def handle_advanced_back_button(update: Update, context: ContextTypes.DEFA
     elif data == "back_from_random":
         # العودة للقائمة الرئيسية للمستخدمين
         kb, title = get_main_menu("user")
-        await query.edit_message_text(f"🔹 b>{title}</<b> 🔹", reply_markup=kb, parse_mode='HTML')
+        await query.edit_message_text(f"🔹 {title} 🔹", reply_markup=kb)
 
 async def send_user_content(query, cat_code):
     """إرسال محتوى عشوائي للمستخدم مع أزرار رجوع محسنة"""
@@ -1040,9 +1040,9 @@ async def send_user_content(query, cat_code):
                 session.close()
             
             if content.text.strip().startswith('>'):
-                text = f"✨ b>{cat_name}</<b>\n\n<blockquote>{text}</blockquote>"
+                text = f"✨ {cat_name}\n\n<blockquote>{text}</blockquote>"
             else:
-                text = f"✨ b>{cat_name}</<b>\n\n{text}"
+                text = f"✨ {cat_name}\n\n{text}"
         else:
             text = f"📭 لا يوجد محتوى في قسم {cat_name}."
         
@@ -1117,7 +1117,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.close()
 
     kb, title = get_main_menu(role)
-    text = f"أهلاً بك {update.effective_user.first_name}! 👋\n\n🔹 b>{title}</<b> 🔹"
+    text = f"أهلاً بك {update.effective_user.first_name}! 👋\n\n🔹 {title} 🔹"
     await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
 
 @performance_monitor
@@ -1154,7 +1154,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # العودة للقائمة الرئيسية
         kb, title = get_main_menu(target_role)
-        await query.edit_message_text(f"🔹 b>{title}</<b> 🔹", reply_markup=kb, parse_mode='HTML')
+        await query.edit_message_text(f"🔹 {title} 🔹", reply_markup=kb, parse_mode='HTML')
         return
 
     # معالجة أزرار الرجوع المتقدمة
@@ -1248,7 +1248,108 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # --- باقي منطق معالجة الأزرار ---
-    # ... (بقية الكود كما هو في النسخة السابقة مع الإضافات الجديدة)
+    if data == "add_channel_start":
+        context.user_data.clear()
+        await query.edit_message_text("⚙️ <b>خطوة 1/4:</b>\n\nيرجى إرسال رابط القناة (مثل @channel) أو تحويل رسالة.", reply_markup=get_back_keyboard(current_role), parse_mode='HTML')
+        return STATE_ADD_CHANNEL_LINK
+
+    if data == "manage_channels":
+        await show_channels_list(query, current_role)
+
+    if data.startswith("toggle_channel_"):
+        ch_id = int(data.split("_")[2])
+        await toggle_channel_status(ch_id, query, current_role)
+
+    if data.startswith("delete_channel_"):
+        ch_id = int(data.split("_")[2])
+        await delete_channel(ch_id, query, current_role)
+
+    if data.startswith("info_channel_"):
+        ch_id = int(data.split("_")[2])
+        channel_info = get_channel_info_keyboard(ch_id)
+        if channel_info:
+            info_text, buttons = channel_info
+            await query.edit_message_text(info_text, reply_markup=buttons, parse_mode='HTML')
+
+    # --- المحتوى ---
+    if data == "manage_content":
+        await show_content_stats(query, current_role)
+
+    if data.startswith("cat_content_"):
+        cat_code = data.split("_")[-1]
+        context.user_data['manage_cat'] = cat_code
+        cat_name, buttons = get_content_management_keyboard(cat_code)
+        await query.edit_message_text(f"قسم: <b>{cat_name}</b>\nاختر إجراء:", reply_markup=buttons, parse_mode='HTML')
+
+    if data.startswith("upload_"):
+        cat = data.split("_")[1]
+        context.user_data['upload_category'] = cat
+        cat_name, _ = get_content_management_keyboard(cat)
+        await query.edit_message_text(f"رفع محتوي لقسم: <b>{cat_name}</b>\n\nاختر طريقة الرفع:", reply_markup=get_upload_keyboard(cat), parse_mode='HTML')
+        return STATE_UPLOAD_CONTENT
+
+    # --- الترشيحات ---
+    if current_role == "dev":
+        if data == "bot_settings":
+            await show_bot_settings(query, current_role)
+
+        if data == "set_required_channel":
+            context.user_data.clear()
+            await query.edit_message_text("⚙️ <b>تعيين قناة الاشتراك الإجباري:</b>\n\nأرسل معرف القناة (@channel) أو رابطها:", reply_markup=get_back_keyboard("dev"), parse_mode='HTML')
+            return STATE_SET_REQUIRED_CHANNEL
+
+        if data == "filters_menu":
+            await query.edit_message_text("🔍 <b>قواعد الترشيح:</b>\n\nاختر الترشيح لتعديله:", reply_markup=get_filters_keyboard(), parse_mode='HTML')
+            return STATE_FILTERS_MENU
+
+        if data == "add_filter":
+            context.user_data.clear()
+            await query.edit_message_text("⚙️ <b>إضافة ترشيح جديد:</b>\n\nأرسل النص بالصيغة: الكلمة → البديل\n\nمثال: سلام → السلام عليكم", reply_markup=get_back_keyboard("dev"), parse_mode='HTML')
+            return STATE_ADD_FILTER
+
+        if data.startswith("edit_filter_"):
+            filter_id = int(data.split("_")[2])
+            await edit_filter(query, filter_id, current_role)
+
+    # --- خطوات إضافة القناة ---
+    if data.startswith("cat_select_"):
+        cat = data.split("_")[-1]
+        context.user_data['add_cat'] = cat
+        await query.edit_message_text("⚙️ <b>خطوة 3/4:</b>\n\nاختر شكل الرسالة:", reply_markup=get_format_keyboard("fmt_select"), parse_mode='HTML')
+        return STATE_ADD_CHANNEL_FORMAT
+
+    if data.startswith("fmt_select_"):
+        fmt = data.split("_")[-1]
+        context.user_data['add_fmt'] = fmt
+        await query.edit_message_text("⚙️ <b>خطوة 4/4:</b>\n\nاختر توقيت النشر:", reply_markup=get_time_keyboard("time_select"), parse_mode='HTML')
+        return STATE_ADD_CHANNEL_TIME
+
+    if data.startswith("time_select_"):
+        time_type = data.split("_")[-1]
+        context.user_data['add_time_type'] = time_type
+        
+        if time_type == "default":
+            await save_new_channel(context, user_id)
+            await query.edit_message_text("✅ تم إضافة القناة بنجاح (توقيت افتراضي).", reply_markup=get_main_menu(current_role)[0], parse_mode='HTML')
+            return ConversationHandler.END
+        else:
+            msg = "أرسل التوقيت الآن:"
+            if time_type == "fixed": msg = "أرسل الساعات مفصولة بفاصلة (مثال: 10, 14, 20):"
+            elif time_type == "interval": msg = "أرسل عدد الدقائق (مثال: 60):"
+            await query.edit_message_text(msg, reply_markup=get_back_keyboard(current_role))
+            return STATE_ADD_CHANNEL_TIME
+
+    # --- أوامر أخرى ---
+    if data == "force_post_now":
+        await query.edit_message_text("⏳ جاري النشر...")
+        await post_to_channels_logic(APPLICATION.bot, force_run=True)
+        await query.edit_message_text("✅ تم.", reply_markup=get_back_keyboard(current_role))
+    
+    if data == "stats":
+        txt = get_stats()
+        await query.edit_message_text(txt, reply_markup=get_back_keyboard(current_role), parse_mode='HTML')
+
+# --- دوال المساعدة ---
 
 async def show_notifications_menu(query, role):
     """عرض قائمة الإشعارات"""
@@ -1301,7 +1402,7 @@ async def show_user_analytics(query, user_id):
             text += f"🏆 أفضل محتوى:\n"
             text += f"النص: {best_content.text[:50]}...\n"
             text += f"المشاهدات: {best_content.view_count}\n"
-            text += fالتقييم: {best_content.rating}/5 ({best_content.rating_count} تقييم)\n"
+            text += f"التقييم: {best_content.rating}/5 ({best_content.rating_count} تقييم)\n"
         
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("🔙 رجوع", callback_data="back_premium")]
@@ -1415,7 +1516,7 @@ def main():
     APPLICATION.add_handler(CommandHandler("start", start))
     APPLICATION.add_handler(CallbackQueryHandler(button_handler))
     
-    # إضافة محادثات
+    # إضافة المحادثات
     # ... (إضافة المحادثات كما في النسخة السابقة)
     
     # إضافة المهام الدورية

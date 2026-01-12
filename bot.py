@@ -462,6 +462,7 @@ class TaskQueue:
             else:
                 await asyncio.sleep(1)
 
+# --- مراقب الأداء (تم تعديله ليكون Decorator) ---
 class PerformanceMonitor:
     def __init__(self):
         self.stats = {
@@ -471,6 +472,22 @@ class PerformanceMonitor:
             'cache_hits': 0,
             'cache_misses': 0
         }
+    
+    def __call__(self, func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            start_time = time.time()
+            success = True
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                success = False
+                raise e
+            finally:
+                end_time = time.time()
+                response_time = end_time - start_time
+                self.record_request(response_time, success)
+        return wrapper
     
     @property
     def avg_response_time(self):
@@ -519,7 +536,9 @@ class PerformanceMonitor:
 # --- متغيرات عامة ---
 cache_manager = CacheManager()
 task_queue = TaskQueue()
-performance_monitor = PerformanceMonitor()
+
+# إنشاء نسخة واحدة من مراقب الأداء ليتم استخدامها كـ Decorator ومشتركة للإحصائيات
+perf_monitor = PerformanceMonitor()
 
 # --- دوال الإضافات الجديدة ---
 
@@ -684,10 +703,10 @@ async def get_cached_channels():
     """الحصول على القنوات من التخزين المؤقت"""
     cached_data = await cache_manager.get('channels')
     if cached_data:
-        performance_monitor.record_cache_hit()
+        perf_monitor.record_cache_hit()
         return cached_data
     
-    performance_monitor.record_cache_miss()
+    perf_monitor.record_cache_miss()
     session = get_session()
     try:
         channels = session.query(Channel).all()
@@ -1065,7 +1084,7 @@ async def send_user_content(query, cat_code):
 
 # --- معالج الأوامر ---
 
-@performance_monitor
+@perf_monitor
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة أمر /start"""
     user_id = update.effective_user.id
@@ -1124,7 +1143,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = f"أهلاً بك {update.effective_user.first_name}! 👋\n\n🔹 <b>{title}</b> 🔹"
     await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
 
-@performance_monitor
+@perf_monitor
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة الأزرار"""
     query = update.callback_query

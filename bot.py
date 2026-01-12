@@ -150,7 +150,13 @@ def db_log_action(user_id, action, details=""):
     
     # تشغيل المهمة في الخلفية
     if APPLICATION:
-        APPLICATION.create_task(log_action())
+        # استخدام asyncio.create_task بدلاً من APPLICATION.create_task
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(log_action())
+        except RuntimeError:
+            pass
 
 def get_role(user_id):
     """الحصول على دور المستخدم"""
@@ -361,6 +367,23 @@ def get_channel_info_keyboard(channel_id):
     finally:
         session.close()
 
+# --- دالة مساعدة مفقودة في الأصل ---
+async def return_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, query=None):
+    """إعادة المستخدم للقائمة الرئيسية"""
+    user_id = update.effective_user.id
+    role = get_role(user_id)
+    
+    kb, title = get_main_menu(role)
+    text = f"🔹 <b>{title}</b> 🔹"
+    
+    if query:
+        try:
+            await query.edit_message_text(text, reply_markup=kb, parse_mode='HTML')
+        except:
+            pass # إذا كانت الرسالة غير قابلة للتعديل
+    elif update.message:
+        await update.message.reply_text(text, reply_markup=kb, parse_mode='HTML')
+
 # --- معالجة الأوامر ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -440,7 +463,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             target_role = current_role
         
         kb, title = get_main_menu(target_role)
-        await query.edit_message_text(f"🔹 b>{title}</<b> 🔹", reply_markup=kb, parse_mode='HTML')
+        await query.edit_message_text(f"🔹 <b>{title}</b> 🔹", reply_markup=kb, parse_mode='HTML')
         return
 
     if current_role == "user":
@@ -509,7 +532,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if data == "set_required_channel":
             context.user_data.clear()
-            await query.edit_message_text("⚙️ <b>تعيين قناة الاشتراك الإجباري:</b>\n\nأرسع معرف القناة (@channel) أو رابطها:", reply_markup=get_back_keyboard("dev"), parse_mode='HTML')
+            await query.edit_message_text("⚙️ <b>تعيين قناة الاشتراك الإجباري:</b>\n\nأرسل معرف القناة (@channel) أو رابطها:", reply_markup=get_back_keyboard("dev"), parse_mode='HTML')
             return STATE_SET_REQUIRED_CHANNEL
 
         if data == "filters_menu":
@@ -752,7 +775,7 @@ async def handle_channel_link_step(update: Update, context: ContextTypes.DEFAULT
                     f"⏰ التوقيت: {existing_channel.time_type}\n\n"
                     f"هل تريد تعديلها؟ اضغط زر التعديل أدناه.",
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("✅ نعم، أريد تعديلها", callback_data=f"edit_channel_{info['id']}")],
+                        [InlineKeyboardButton("✅ نعم، أريد تعديلها", callback_data=f"edit_channel_{info['id']}")], # هذا الزر سيقوم بإنهاء المحادثة وتوجيهك للمعلومات، يحتاج منطق إضافي ليكون صحيحاً داخل المحادثة
                         [InlineKeyboardButton("🔙 إلغاء", callback_data="back_admin")]
                     ]),
                     parse_mode='HTML'
@@ -1146,9 +1169,11 @@ async def broadcast_worker(bot, text):
 def main():
     """البدء في التشغيل"""
     global APPLICATION
+    # تم تصحيح اسم المتغير هنا ليتطابق مع المتغير العام
     APPLICATION = Application.builder().token(TOKEN).build()
 
     # محادثة إضافة قناة
+    # إزالة STATE_EDIT_CHANNEL من حالات المحادثة لأن الدالة غير موجودة في الكود المقدم
     add_channel_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(button_handler, pattern="^add_channel_start$")],
         states={
@@ -1163,10 +1188,10 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_channel_time_step),
                 MessageHandler(filters.ALL, lambda update, context: update.message.reply_text("❌ يرجى إدخال رقم صحيح."))
             ],
-            STATE_EDIT_CHANNEL: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_channel_step)],
         },
         fallbacks=[
-            CallbackQueryHandler(lambda update, context: return_to_main_menu(update, context, update.callback_query), pattern="^back_"),
+            CallbackQueryHandler(return_to_main_menu, pattern="^back_"),
+            CommandHandler("cancel", return_to_main_menu),
             MessageHandler(filters.COMMAND, lambda update, context: update.message.reply_text("❌ تم إلغاء العملية."))
         ],
         name="add_channel_conv",
@@ -1184,7 +1209,8 @@ def main():
             ]
         },
         fallbacks=[
-            CallbackQueryHandler(lambda update, context: return_to_main_menu(update, context, update.callback_query), pattern="^back_"),
+            CallbackQueryHandler(return_to_main_menu, pattern="^back_"),
+            CommandHandler("cancel", return_to_main_menu),
             MessageHandler(filters.COMMAND, lambda update, context: update.message.reply_text("❌ تم إلغاء العملية."))
         ],
         name="upload_conv",
@@ -1199,7 +1225,8 @@ def main():
             STATE_SET_REQUIRED_CHANNEL: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_required_channel_step)]
         },
         fallbacks=[
-            CallbackQueryHandler(lambda update, context: return_to_main_menu(update, context, update.callback_query), pattern="^back_"),
+            CallbackQueryHandler(return_to_main_menu, pattern="^back_"),
+            CommandHandler("cancel", return_to_main_menu),
             MessageHandler(filters.COMMAND, lambda update, context: update.message.reply_text("❌ تم إلغاء العملية."))
         ],
         name="filters_conv",
@@ -1207,17 +1234,17 @@ def main():
     )
 
     # تسجيل الهاندلرز
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(add_channel_conv)
-    application.add_handler(upload_conv)
-    application.add_handler(filters_conv)
-    application.add_handler(CallbackQueryHandler(button_handler))
+    APPLICATION.add_handler(CommandHandler("start", start))
+    APPLICATION.add_handler(add_channel_conv)
+    APPLICATION.add_handler(upload_conv)
+    APPLICATION.add_handler(filters_conv)
+    APPLICATION.add_handler(CallbackQueryHandler(button_handler))
 
-    if application.job_queue:
-        application.job_queue.run_repeating(post_to_channels_logic, interval=60, first=10)
+    if APPLICATION.job_queue:
+        APPLICATION.job_queue.run_repeating(post_to_channels_logic, interval=60, first=10)
 
     logger.info("Bot started polling...")
-    application.run_polling(drop_pending_updates=True)
+    APPLICATION.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()

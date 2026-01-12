@@ -1,5 +1,4 @@
-# requirements.txt
-python-telegram-bot==20.0
+python-telegram-bot[job_queue]>=20.0
 aiofiles==23.2.1
 backoff==2.2.1
 sqlalchemy>=2.0.36

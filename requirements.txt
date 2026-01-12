@@ -1,5 +1,5 @@
-python-telegram-bot[job-queue]>=21.2
-pyrogram==2.0.106
-TgCrypto==1.2.5
-sqlalchemy==2.0.36
-aiofiles
+# requirements.txt
+python-telegram-bot==20.0
+aiofiles==23.2.1
+backoff==2.2.1
+SQLAlchemy==2.0.23
